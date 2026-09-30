@@ -5,6 +5,7 @@ description = "台灣防制洗錢法規問答（RAG）"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "certifi>=2026.7.22",
     "httpx>=0.28.1",
     "langchain>=1.4.3",
     "langchain-anthropic>=1.7.5",

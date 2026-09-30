@@ -1,5 +1,6 @@
 import json
 import re
+import ssl
 import tomllib
 import zipfile
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import certifi
 import httpx
 from pydantic import BaseModel
 
@@ -54,7 +56,9 @@ def fetch_datasets(
     raw_dir: Path, *, refresh: bool = False, client: httpx.Client | None = None
 ) -> FetchResult:
     raw_dir.mkdir(parents=True, exist_ok=True)
-    http = client or httpx.Client(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True)
+    http = client or httpx.Client(
+        timeout=DOWNLOAD_TIMEOUT, follow_redirects=True, verify=download_ssl_context()
+    )
     paths: list[Path] = []
     warnings: list[str] = []
     try:
@@ -69,6 +73,14 @@ def fetch_datasets(
         if client is None:
             http.close()
     return FetchResult(paths, warnings)
+
+
+def download_ssl_context() -> ssl.SSLContext:
+    # 全國法規資料庫的憑證缺少 Subject Key Identifier，Python 3.13 起的嚴格檢查會拒絕；
+    # 只關閉這項嚴格檢查，憑證鏈與主機名稱仍照常驗證
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return context
 
 
 def _download_or_keep_cache(client: httpx.Client, url: str, path: Path, name: str) -> str | None:

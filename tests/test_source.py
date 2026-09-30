@@ -208,3 +208,14 @@ def test_chapter_heading_starting_with_jie_is_not_a_section():
 
 def test_unrecognized_heading_leaves_state_unchanged():
     assert chapter_of("第 一 章 總則", "附則說明") == "第 一 章 總則"
+
+
+def test_download_ssl_context_verifies_but_allows_missing_key_identifier():
+    import ssl
+
+    from aml_reg_rag.ingest.source import download_ssl_context
+
+    context = download_ssl_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+    assert not context.verify_flags & ssl.VERIFY_X509_STRICT
