@@ -63,6 +63,21 @@ def test_summarize_retrieval():
     assert (summary.recall_at_k, summary.mrr) == (1.0, 0.75)
 
 
+def test_summarize_retrieval_excludes_failed_questions():
+    failed = retrieval("q2", ["C:3"], []).model_copy(update={"error": "TimeoutError"})
+    summary = summarize_retrieval([retrieval("q1", ["A:1"], ["A:1"]), failed])
+    assert (summary.questions, summary.errors) == (1, 1)
+    assert (summary.hit_at_1, summary.recall_at_k, summary.mrr) == (1.0, 1.0, 1.0)
+
+
+def test_summarize_retrieval_all_failed():
+    failed = retrieval("q1", ["A:1"], []).model_copy(update={"error": "TimeoutError"})
+    summary = summarize_retrieval([failed])
+    assert (summary.questions, summary.errors) == (0, 1)
+    assert (summary.hit_at_1, summary.hit_at_3, summary.hit_at_k) == (0.0, 0.0, 0.0)
+    assert (summary.recall_at_k, summary.mrr) == (0.0, 0.0)
+
+
 def test_cost_usd():
     assert cost_usd(FLASH, 1_000_000, 1_000_000) == 4.5
     assert cost_usd("unknown:model", 1, 1) is None

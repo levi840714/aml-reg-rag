@@ -27,10 +27,12 @@ class RetrievalResult(BaseModel):
     expected: list[str]
     ranked: list[str]
     top_score: float | None
+    error: str | None = None
 
 
 class RetrievalSummary(BaseModel):
     questions: int
+    errors: int = 0
     hit_at_1: float
     hit_at_3: float
     hit_at_k: float
@@ -112,14 +114,16 @@ def refusal_outcome(expected_answerable: bool, predicted_answerable: bool) -> Re
 
 
 def summarize_retrieval(results: list[RetrievalResult]) -> RetrievalSummary:
-    count = len(results)
+    done = [r for r in results if r.error is None]
+    count = len(done) or 1  # 全數失敗時各指標為 0.0
     return RetrievalSummary(
-        questions=count,
-        hit_at_1=sum(hit_at(r.ranked, r.expected, 1) for r in results) / count,
-        hit_at_3=sum(hit_at(r.ranked, r.expected, 3) for r in results) / count,
-        hit_at_k=sum(hit_at(r.ranked, r.expected, len(r.ranked)) for r in results) / count,
-        recall_at_k=sum(recall(r.ranked, r.expected) for r in results) / count,
-        mrr=sum(reciprocal_rank(r.ranked, r.expected) for r in results) / count,
+        questions=len(done),
+        errors=len(results) - len(done),
+        hit_at_1=sum(hit_at(r.ranked, r.expected, 1) for r in done) / count,
+        hit_at_3=sum(hit_at(r.ranked, r.expected, 3) for r in done) / count,
+        hit_at_k=sum(hit_at(r.ranked, r.expected, len(r.ranked)) for r in done) / count,
+        recall_at_k=sum(recall(r.ranked, r.expected) for r in done) / count,
+        mrr=sum(reciprocal_rank(r.ranked, r.expected) for r in done) / count,
     )
 
 

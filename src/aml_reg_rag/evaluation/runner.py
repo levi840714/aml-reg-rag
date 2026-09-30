@@ -61,7 +61,21 @@ def run_retrieval(
     ]
     results = []
     for qid, dataset, category, expected, question in items:
-        chunks = index.search(question, k)
+        try:
+            chunks = index.search(question, k)
+        except Exception as exc:  # 單題失敗不中斷整批評測
+            results.append(
+                RetrievalResult(
+                    question_id=qid,
+                    dataset=dataset,
+                    category=category,
+                    expected=expected,
+                    ranked=[],
+                    top_score=None,
+                    error=_describe(exc),
+                )
+            )
+            continue
         results.append(
             RetrievalResult(
                 question_id=qid,
@@ -101,7 +115,7 @@ def answer_one(
     try:
         state = ask(question.question, k)
     except Exception as exc:  # 記錄後繼續下一題
-        result.error = type(exc).__name__
+        result.error = _describe(exc)
         result.seconds = time.perf_counter() - started
         return result
     result.seconds = time.perf_counter() - started
@@ -110,6 +124,7 @@ def answer_one(
     result.output_tokens = state["output_tokens"]
     answer = state["answer"]
     if answer is None:
+        result.error = "輸出無法解析"
         return result
     cited = cited_articles(answer, labeled_chunks(state["chunks"]))
     result.predicted_answerable = answer.answerable
@@ -181,6 +196,13 @@ def write_report(eval_dir: Path, report: EvalReport) -> Path:
     path = eval_dir / f"{report.created_at:%Y%m%d-%H%M%S}-{label}.json"
     path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return path
+
+
+def _describe(exc: Exception) -> str:
+    """只取例外類型與狀態碼；訊息可能含請求細節。"""
+    code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    name = type(exc).__name__
+    return f"{name}（狀態碼 {code}）" if code else name
 
 
 def _judge(

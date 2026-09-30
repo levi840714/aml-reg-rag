@@ -5,6 +5,7 @@ from langchain_core.runnables import RunnableLambda
 
 from aml_reg_rag.evaluation.dataset import CuratedQuestion, SyntheticQuestion
 from aml_reg_rag.evaluation.judge import JudgeOutput, KeyPointVerdict
+from aml_reg_rag.evaluation.metrics import summarize_generation
 from aml_reg_rag.evaluation.runner import (
     answer_one,
     build_report,
@@ -130,6 +131,44 @@ def test_answer_one_records_errors():
 
     result = answer_one(failing, judge_with(True), question(), 6, run=1)
     assert result.error == "TimeoutError"
+
+
+def test_answer_one_flags_unparsed_answer():
+    result = answer_one(fake_ask(None), judge_with(True), question(), 6, run=1)
+    assert result.error == "輸出無法解析"
+    assert result.verified is True
+    assert result.input_tokens == 100
+    summary = summarize_generation([result], FLASH, FLASH)
+    assert (summary.runs, summary.errors) == (0, 1)
+
+
+def test_answer_one_error_includes_status_code_not_message():
+    class ApiError(Exception):
+        status_code = 429
+
+    def failing(text, k):
+        raise ApiError("secret request detail")
+
+    result = answer_one(failing, judge_with(True), question(), 6, run=1)
+    assert result.error == "ApiError（狀態碼 429）"
+
+
+def test_run_retrieval_continues_after_search_failure():
+    class FlakyIndex(FakeIndex):
+        def search(self, query, k):
+            if query == "壞題":
+                raise TimeoutError
+            return super().search(query, k)
+
+    curated = [question(), question(id="c-004", question="壞題")]
+    results = run_retrieval(FlakyIndex([VASP]), curated, [], 6)
+    assert [r.question_id for r in results] == ["c-001", "c-004"]
+    assert results[0].error is None
+    assert (results[1].ranked, results[1].top_score, results[1].error) == (
+        [],
+        None,
+        "TimeoutError",
+    )
 
 
 def test_judge_exception_is_recorded():
