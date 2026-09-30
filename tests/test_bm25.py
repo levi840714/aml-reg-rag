@@ -42,3 +42,7 @@ def test_results_are_limited_and_exclude_zero_scores():
     index = fixture_index()
     assert len(index.search("制裁名單", 1)) == 1
     assert index.search("完全無關的英文 zzz", 5) == []
+
+
+def test_empty_index_returns_no_results():
+    assert Bm25Index([]).search("臨時性交易", 5) == []
