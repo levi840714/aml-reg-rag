@@ -82,7 +82,8 @@ aml_reg_rag/
 │   ├── __main__.py / cli.py
 │   ├── render.py              # rich 呈現：檢索結果、回答、eval 摘要
 │   ├── config.py
-│   ├── models.py              # LawArticle、RetrievedChunk、Citation、Point、Answer
+│   ├── models.py              # LawArticle、Chunk、RetrievedChunk、Citation、Point、Answer
+│   ├── llm.py                 # 建立 structured output 模型、token 統計
 │   ├── citations.py           # 引用驗證
 │   ├── trace.py
 │   ├── ingest/
@@ -99,6 +100,7 @@ aml_reg_rag/
 │   │   └── build.py
 │   └── evaluation/
 │       ├── dataset.py         # 讀取與驗證題庫
+│       ├── prompts.py         # 自動生成題與 judge 的 prompt
 │       ├── generate.py        # 自動生成題
 │       ├── judge.py           # 要點涵蓋判斷
 │       ├── metrics.py         # 檢索與生成指標、PRICING
@@ -107,7 +109,7 @@ aml_reg_rag/
 └── var/                       # raw/、traces/、eval/（不進版控）
 ```
 
-相依方向：`cli` → `graph` / `ingest` / `evaluation` → `retrieval` / `citations` → `models` / `config`。只有 `graph` 與 `evaluation` 接觸 LLM。
+相依方向：`cli` → `evaluation` → `graph` → `retrieval` / `citations` / `llm` → `models` / `config`；`ingest` → `retrieval`。只有 `graph` 與 `evaluation` 經由 `llm` 接觸 LLM。
 
 ## 4. 元件
 
@@ -246,7 +248,7 @@ aml_reg_rag/
 | generate | 以 `S1`…`Sk` 標籤呈現段落，呼叫 structured output；重試時附上前次的問題清單。解析失敗時 `answer = None`，交由 verify 判定 |
 | verify | 呼叫 `citations.verify`；通過則結束，未通過且 `attempts < 2` 回到 generate，否則以 `verified = False` 結束 |
 
-`build_graph(index, llm)` 回傳 compiled graph，依賴由外部注入。
+`build_graph(index, drafter)` 回傳 compiled graph，依賴由外部注入；drafter 為 `with_structured_output(Answer, include_raw=True)` 的模型。
 
 **輸出結構**
 
