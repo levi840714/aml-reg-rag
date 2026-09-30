@@ -1,7 +1,7 @@
 # AGENTS.md
 
 台灣防制洗錢法規問答（RAG）。以 Python、LangChain、LangGraph 實作，形式為 CLI。
-設計文件在 `docs/specs/`，實作計畫在 `docs/plans/`。
+設計文件在 `docs/specs/`，實作計畫在 `docs/plans/`，eval 結果與分析在 `docs/eval-results.md`（README 只放摘要）。
 
 ## 目錄結構
 

@@ -1,0 +1,152 @@
+# 評估結果
+
+本文件記錄各版本的 eval 數字與分析；README 只保留摘要。所有數字來自 `var/eval/` 的結果檔，執行方式見 README「評估」。
+
+## 指標定義
+
+**檢索**（以「條」為單位，同一條切出的多段只算一次名次；k 為取回段數，預設 6）
+
+| 指標 | 意義 |
+| ---- | ---- |
+| Hit@1 / Hit@3 / Hit@k | 前 1、3、k 名中是否有任一預期條文 |
+| Recall@k | 預期條文中有幾成出現在前 k 名（跨法規題有多條預期條文） |
+| MRR | 第一個預期條文名次的倒數（第 1 名 1 分、第 2 名 0.5 分，沒找到 0 分） |
+
+**生成**（人工題，每題實際回答）
+
+| 指標 | 意義 |
+| ---- | ---- |
+| 驗證通過 | 引用的原文確實出自引用的段落（程式檢查），不代表答案正確 |
+| 拒答正確 / 該答卻拒 / 該拒卻答 | 與題目標記的「可回答／應拒答」比對；該拒卻答最嚴重 |
+| 引用預期 / 引用禁止 | 是否引用題目指定的正確條文；是否引用不該用的條文（如問虛擬資產服務商卻引用金融機構版辦法） |
+| 要點涵蓋 | judge 模型逐項判斷答案是否提到每個要點；只計入有回答的執行 |
+| 一致率 | `--repeat` 時同一題各次的拒答判斷與驗證結果是否相同 |
+
+## 文中提到的題目
+
+| 題號 | 類別 | 問題 |
+| ---- | ---- | ---- |
+| c-007 | 情境判斷 | 新客戶註冊時拒絕提供身分證明文件，可以先讓他開始交易嗎？ |
+| c-010 | 情境判斷 | 監控系統發現一筆疑似洗錢的交易，但交易最後沒有完成，還需要申報嗎？期限是多久？ |
+| c-013 | 跨法規 | 虛擬資產服務商沒有依資恐防制法通報制裁對象的資產，會被怎麼處罰？ |
+
+人工題目前 20 題皆由 Claude 對照條文起草（`source: claude_draft`），尚未經人工審核。
+
+## 分數的意義在 v2 改變
+
+v1 的 trace 與 eval 結果中，`top_score` 與段落分數為向量相似度；v2 起為最終排序依據（開啟 rerank 時為 rerank 分數 0～3，否則為 RRF 分數），兩者不可直接比較。v2 的向量相似度記錄在 trace 的 `retrieval.traces`。
+
+## v1 baseline：只有向量檢索
+
+v1 第一次 eval（2026-09-30，`reg eval run --repeat 3`）：`LLM_MODEL` 與 judge 皆為 `google_genai:gemini-3.8-flash`，`EMBEDDING_MODEL=google_genai:gemini-embedding-001`（1536 維），索引 `chunks_google_genai_gemini_embedding_001_d1536`（214 段），k=6。人工題 20 題皆為 `claude_draft`、尚未審核。
+
+檢索（以條為單位）：
+
+| 題庫 | 題數 | Hit@1 | Hit@3 | Hit@k | Recall@k | MRR |
+| ---- | ---- | ----- | ----- | ----- | -------- | --- |
+| curated | 17 | 76% | 94% | 94% | 91% | 0.853 |
+| curated/lookup | 5 | 80% | 100% | 100% | 100% | 0.900 |
+| curated/scenario | 5 | 60% | 100% | 100% | 90% | 0.800 |
+| curated/cross_law | 3 | 67% | 67% | 67% | 67% | 0.667 |
+| curated/distractor | 4 | 100% | 100% | 100% | 100% | 1.000 |
+| synthetic | 175 | 74% | 93% | 97% | 97% | 0.834 |
+
+生成（人工題 × 3 次）：
+
+| 類別 | 執行 | 驗證通過 | 拒答正確 | 該答卻拒 | 該拒卻答 | 引用預期 | 引用禁止 | 要點涵蓋 | 平均秒數 | 成本 |
+| ---- | ---- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | ---- |
+| all | 60 | 100% | 95% | 3 | 0 | 96% | 3 | 88% | 4.8 | $0.3478 |
+| lookup | 15 | 100% | 100% | 0 | 0 | 87% | 0 | 96% | 4.2 | $0.0775 |
+| scenario | 15 | 100% | 100% | 0 | 0 | 100% | 3 | 80% | 5.8 | $0.1163 |
+| cross_law | 9 | 100% | 67% | 3 | 0 | 100% | 0 | 88% | 5.8 | $0.0581 |
+| distractor | 12 | 100% | 100% | 0 | 0 | 100% | 0 | 88% | 4.5 | $0.0664 |
+| refusal | 9 | 100% | 100% | 0 | 0 | — | 0 | — | 3.8 | $0.0294 |
+
+重複執行一致率 100%，無錯誤、無無法解析的輸出。
+
+觀察（v2 的改進方向）：
+
+- c-013（未通報制裁資產的罰則）檢索未取得資恐防制法第 12 條與洗錢防制法第 5 條，3 次皆拒答；跨法規題需要多步檢索或 query rewriting
+- 以情境描述的問題較容易被金融機構版辦法干擾：c-007、c-010 的第 1 名為金融機構防制洗錢辦法，c-010 三次都引用了禁止條文 `G0380252:15`；純條文查詢的干擾題則全部正確
+- 自動生成題 175 題中有 6 題未在 top-6 找到出處條文
+
+## v2 ablation：檢索管線各步驟的影響
+
+2026-09-30 執行；`LLM_MODEL` 與 judge 為 `google_genai:gemini-3.8-flash`，`LLM_LIGHT_MODEL` 為 `google_genai:gemini-3.5-flash-lite`，索引沿用 v1 的 `chunks_google_genai_gemini_embedding_001_d1536`（214 段），k=6、`RETRIEVAL_CANDIDATES=20`。除依序疊加的 4 組外，另補跑只開 rerank 的一組，用來分離 hybrid 在搭配 rerank 時的影響。
+
+```bash
+uv run reg eval run --retrieval-only --no-hybrid --no-rewrite --no-rerank
+uv run reg eval run --retrieval-only --no-rewrite --no-rerank
+uv run reg eval run --retrieval-only --no-rewrite
+uv run reg eval run --retrieval-only --hybrid --rewrite --rerank
+uv run reg eval run --retrieval-only --no-hybrid --no-rewrite --rerank
+uv run reg eval compare var/eval/<以上結果檔>
+```
+
+檢索（以條為單位；vector 一欄與上方 v1 baseline 一致）：
+
+| 題庫 | 指標 | vector（v1） | hybrid | rerank | hybrid+rerank | hybrid+rewrite+rerank |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| curated | Hit@1 | 76% | 76% | 82% | 88% | 82% |
+| curated | Hit@3 | 94% | 88% | 100% | 100% | 100% |
+| curated | Recall@k | 91% | 85% | 94% | 94% | 94% |
+| curated | MRR | 0.853 | 0.824 | 0.912 | 0.941 | 0.912 |
+| curated/lookup | Hit@1 | 80% | 80% | 80% | 80% | 80% |
+| curated/lookup | Hit@3 | 100% | 80% | 100% | 100% | 100% |
+| curated/lookup | Recall@k | 100% | 80% | 100% | 100% | 100% |
+| curated/lookup | MRR | 0.900 | 0.800 | 0.900 | 0.900 | 0.900 |
+| curated/scenario | Hit@1 | 60% | 80% | 60% | 80% | 60% |
+| curated/scenario | Hit@3 | 100% | 100% | 100% | 100% | 100% |
+| curated/scenario | Recall@k | 90% | 90% | 90% | 90% | 90% |
+| curated/scenario | MRR | 0.800 | 0.900 | 0.800 | 0.900 | 0.800 |
+| curated/cross_law | Hit@1 | 67% | 33% | 100% | 100% | 100% |
+| curated/cross_law | Hit@3 | 67% | 67% | 100% | 100% | 100% |
+| curated/cross_law | Recall@k | 67% | 67% | 83% | 83% | 83% |
+| curated/cross_law | MRR | 0.667 | 0.500 | 1.000 | 1.000 | 1.000 |
+| curated/distractor | Hit@1 | 100% | 100% | 100% | 100% | 100% |
+| curated/distractor | Hit@3 | 100% | 100% | 100% | 100% | 100% |
+| curated/distractor | Recall@k | 100% | 100% | 100% | 100% | 100% |
+| curated/distractor | MRR | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| synthetic | Hit@1 | 74% | 72% | 79% | 79% | 78% |
+| synthetic | Hit@3 | 93% | 90% | 95% | 95% | 95% |
+| synthetic | Recall@k | 97% | 96% | 97% | 96% | 95% |
+| synthetic | MRR | 0.834 | 0.816 | 0.870 | 0.869 | 0.859 |
+
+| 指標 | vector（v1） | hybrid | rerank | hybrid+rerank | hybrid+rewrite+rerank |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+| 每題平均秒數（synthetic） | 0.4 | 0.4 | 2.5 | 2.9 | 4.0 |
+| 一次檢索 eval 成本（192 題） | $0.00 | $0.00 | $0.54 | $0.55 | $0.56 |
+| 退回次數 | 0 | 0 | 0 | 0 | 0 |
+
+完整 eval（人工題 × 3 次，`--repeat 3`）：v1 設定（`--no-hybrid --no-rewrite --no-rerank`）與最佳設定（hybrid+rerank）：
+
+| 類別 | 設定 | 驗證通過 | 拒答正確 | 該答卻拒 | 該拒卻答 | 引用預期 | 引用禁止 | 要點涵蓋 | 平均秒數 | 成本 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| all | vector | 100% | 95% | 3 | 0 | 94% | 3 | 90% | 4.7 | $0.3544 |
+| all | hybrid+rerank | 100% | 98% | 1 | 0 | 96% | 3 | 92% | 7.7 | $0.5954 |
+| lookup | vector | 100% | 100% | 0 | 0 | 80% | 0 | 93% | 3.8 | $0.0747 |
+| lookup | hybrid+rerank | 100% | 100% | 0 | 0 | 87% | 0 | 96% | 7.1 | $0.1356 |
+| scenario | vector | 100% | 100% | 0 | 0 | 100% | 3 | 83% | 6.1 | $0.1217 |
+| scenario | hybrid+rerank | 100% | 100% | 0 | 0 | 100% | 3 | 96% | 8.5 | $0.1828 |
+| cross_law | vector | 100% | 67% | 3 | 0 | 100% | 0 | 88% | 5.7 | $0.0634 |
+| cross_law | hybrid+rerank | 100% | 89% | 1 | 0 | 100% | 0 | 75% | 12.2 | $0.1306 |
+| distractor | vector | 100% | 100% | 0 | 0 | 100% | 0 | 96% | 4.1 | $0.0652 |
+| distractor | hybrid+rerank | 100% | 100% | 0 | 0 | 100% | 0 | 96% | 6.1 | $0.0955 |
+| refusal | vector | 100% | 100% | 0 | 0 | — | 0 | — | 3.6 | $0.0294 |
+| refusal | hybrid+rerank | 100% | 100% | 0 | 0 | — | 0 | — | 5.3 | $0.0509 |
+
+一致率：vector 100%、hybrid+rerank 95%（不穩定：c-013）
+
+### 結論與預設值
+
+- **rerank 是主要改善來源**：curated Hit@1 由 76% 提升到 82%～88%，synthetic Hit@1 由 74% 提升到 79%、MRR 由 0.834 提升到 0.870；cross_law 的 Hit@1 由 67% 提升到 100%
+- **hybrid 單獨使用略差**（curated Hit@3 94% → 88%），搭配 rerank 時在 synthetic 上與只開 rerank 持平，curated 多對 1 題情境題；BM25 在記憶體中執行，幾乎不增加耗時與成本，預設保留。差距只有 1 題，可能是 rerank 的隨機性
+- **rewrite 沒有提升檢索**（curated Hit@1 88% → 82%、synthetic MRR 0.869 → 0.859），每題多約 1.1 秒；同一題（c-013）在兩次執行中拆出的子查詢不同，一次取得資恐防制法第 12 條、一次沒有，結果不穩定。**預設改為關閉**（`RETRIEVAL_REWRITE=false`）
+- 預設設定為 hybrid+rerank；檢索每題多約 2.5 秒，檢索 eval（192 題）約 0.55 美元
+
+### 觀察
+
+- c-013（未通報制裁資產的罰則）：v1 三次都拒答；v2 檢索取得資恐防制法第 12 條，三次中兩次回答、一次拒答（一致率因此由 100% 降為 95%）。回答時仍缺「洗錢防制法第 5 條：虛擬資產服務商適用金融機構規定」這個要點，要點涵蓋率 50%，因此 cross_law 的要點涵蓋率反而由 88% 降為 75%（v1 拒答的執行不計入涵蓋率）
+- c-010（未完成的疑似洗錢交易）：兩種設定都三次引用禁止條文金融機構防制洗錢辦法第 15 條。題目沒有提到虛擬資產服務商，rerank 將第 15 條評為相關是合理的；這題的禁止條文設定需要在審核題庫時重新檢視
+- 完整 eval 每題平均耗時由 4.7 秒增為 7.7 秒，成本由 0.35 美元增為 0.60 美元（+68%），換得拒答正確率 95% → 98%、要點涵蓋率 90% → 92%、引用預期條文 94% → 96%
+- 第一次執行全開設定時撞到 Gemini 專案的每月支出上限（後 98 題回傳 429），調高上限後重跑，上表為重跑結果
