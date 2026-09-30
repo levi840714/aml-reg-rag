@@ -119,13 +119,14 @@ def answer_one(
         result.seconds = time.perf_counter() - started
         return result
     result.seconds = time.perf_counter() - started
-    result.verified = state["verified"]
     result.input_tokens = state["input_tokens"]
     result.output_tokens = state["output_tokens"]
     answer = state["answer"]
     if answer is None:
-        result.error = "輸出無法解析"
+        # 模型有回應但格式錯誤，屬於生成品質問題，計入驗證失敗而非執行錯誤
+        result.unparsed = True
         return result
+    result.verified = state["verified"]
     cited = cited_articles(answer, labeled_chunks(state["chunks"]))
     result.predicted_answerable = answer.answerable
     result.refusal = refusal_outcome(question.answerable, answer.answerable)

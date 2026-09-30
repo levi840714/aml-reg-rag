@@ -9,6 +9,15 @@ from aml_reg_rag.render import render_answer, render_eval, source_numbers
 from aml_reg_rag.retrieval.index import IndexMeta
 from tests.fakes import answer, cite, point, refusal, retrieved
 
+META = IndexMeta(
+    table_name="chunks_test",
+    embedding_model="google_genai:gemini-embedding-001",
+    embedding_dim=1536,
+    chunk_max_chars=600,
+    source_update_date=date(2026, 9, 18),
+    chunk_count=214,
+    ingested_at=datetime(2026, 9, 30, tzinfo=UTC),
+)
 CHUNKS = [retrieved("G0380268:9", "虛擬資產服務商應於確認客戶身分時，取得必要資訊。")]
 
 
@@ -55,22 +64,13 @@ def test_render_refusal_and_failed_verification():
 
 
 def test_render_eval_warns_when_pricing_is_missing():
-    meta = IndexMeta(
-        table_name="chunks_test",
-        embedding_model="google_genai:gemini-embedding-001",
-        embedding_dim=1536,
-        chunk_max_chars=600,
-        source_update_date=date(2026, 9, 18),
-        chunk_count=214,
-        ingested_at=datetime(2026, 9, 30, tzinfo=UTC),
-    )
     report = build_report(
         created_at=datetime(2026, 9, 30, tzinfo=UTC),
         model="unknown:model",
         judge_model="google_genai:gemini-3.8-flash",
         k=6,
         repeat=1,
-        index=meta,
+        index=META,
         curated=[],
         retrieval_results=[],
         answer_results=[AnswerResult(question_id="c-001", category="lookup", run=1)],
@@ -98,15 +98,7 @@ def test_render_eval_shows_retrieval_errors_column():
         judge_model=None,
         k=6,
         repeat=1,
-        index=IndexMeta(
-            table_name="chunks_test",
-            embedding_model="google_genai:gemini-embedding-001",
-            embedding_dim=1536,
-            chunk_max_chars=600,
-            source_update_date=date(2026, 9, 18),
-            chunk_count=214,
-            ingested_at=datetime(2026, 9, 30, tzinfo=UTC),
-        ),
+        index=META,
         curated=[],
         retrieval_results=[],
         answer_results=[],
@@ -115,3 +107,21 @@ def test_render_eval_shows_retrieval_errors_column():
     render_eval(console, report)
     header = next(line for line in console.export_text().splitlines() if "題數" in line)
     assert header.index("題數") < header.index("錯誤") < header.index("Hit@1")
+
+
+def test_render_generation_shows_unparsed_column():
+    report = build_report(
+        created_at=datetime(2026, 9, 30, tzinfo=UTC),
+        model="google_genai:gemini-3.8-flash",
+        judge_model="google_genai:gemini-3.8-flash",
+        k=6,
+        repeat=1,
+        index=META,
+        curated=[],
+        retrieval_results=[],
+        answer_results=[AnswerResult(question_id="c-001", category="lookup", run=1, unparsed=True)],
+    )
+    console = Console(record=True, width=250)
+    render_eval(console, report)
+    header = next(line for line in console.export_text().splitlines() if "執行" in line)
+    assert header.index("錯誤") < header.index("無法解析") < header.index("驗證通過")

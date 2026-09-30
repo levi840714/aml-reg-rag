@@ -146,3 +146,21 @@ def test_consistency_flags_unstable_questions():
 
 def test_consistency_needs_repeats():
     assert consistency([outcome("q1", 1, "correct")]) == (None, [])
+
+
+def test_unparsed_runs_count_toward_rates_and_cost():
+    unparsed = AnswerResult(
+        question_id="q4", category="lookup", run=1, unparsed=True, input_tokens=1000, seconds=6.0
+    )
+    summary = summarize_generation([*generation_results(), unparsed], FLASH, FLASH)
+    assert (summary.runs, summary.errors, summary.unparsed) == (3, 1, 1)
+    assert summary.verified_rate == pytest.approx(2 / 3)
+    assert summary.avg_seconds == 4.0
+    assert summary.cost_usd == pytest.approx((2500 * 0.75 + 150 * 3.75) / 1_000_000)
+
+
+def test_consistency_includes_unparsed_runs():
+    unparsed = AnswerResult(question_id="q1", category="lookup", run=2, unparsed=True)
+    agreement, unstable = consistency([outcome("q1", 1, "correct"), unparsed])
+    assert agreement == 0.0
+    assert unstable[0].outcomes == ["correct/True", "None/False"]

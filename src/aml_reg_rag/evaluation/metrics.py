@@ -57,12 +57,14 @@ class AnswerResult(BaseModel):
     judge_input_tokens: int = 0
     judge_output_tokens: int = 0
     seconds: float = 0.0
+    unparsed: bool = False
     error: str | None = None
 
 
 class GenerationSummary(BaseModel):
     runs: int
     errors: int
+    unparsed: int
     verified_rate: float | None
     refusal_accuracy: float | None
     false_refusals: int
@@ -143,6 +145,7 @@ def summarize_generation(
     return GenerationSummary(
         runs=len(done),
         errors=len(results) - len(done),
+        unparsed=sum(r.unparsed for r in done),
         verified_rate=_rate(done, lambda r: r.verified),
         refusal_accuracy=_rate(answered, lambda r: r.refusal == "correct"),
         false_refusals=sum(r.refusal == "false_refusal" for r in done),

@@ -133,13 +133,15 @@ def test_answer_one_records_errors():
     assert result.error == "TimeoutError"
 
 
-def test_answer_one_flags_unparsed_answer():
+def test_answer_one_counts_unparsed_answer_as_failed_verification():
     result = answer_one(fake_ask(None), judge_with(True), question(), 6, run=1)
-    assert result.error == "輸出無法解析"
-    assert result.verified is True
+    assert result.unparsed is True
+    assert result.error is None
+    assert result.verified is False
     assert result.input_tokens == 100
     summary = summarize_generation([result], FLASH, FLASH)
-    assert (summary.runs, summary.errors) == (0, 1)
+    assert (summary.runs, summary.errors, summary.unparsed) == (1, 0, 1)
+    assert summary.verified_rate == 0.0
 
 
 def test_answer_one_error_includes_status_code_not_message():
