@@ -32,7 +32,7 @@ class Comparison:
 def load_report(path: Path) -> EvalReport:
     try:
         return EvalReport.model_validate_json(path.read_text(encoding="utf-8"))
-    except ValidationError as exc:
+    except (ValidationError, UnicodeDecodeError, OSError) as exc:
         raise ReportError(f"{path.name} 不是有效的 eval 結果檔") from exc
 
 

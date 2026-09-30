@@ -103,3 +103,10 @@ def test_load_report_round_trip_and_invalid_file(tmp_path):
     bad.write_text("{}", encoding="utf-8")
     with pytest.raises(ReportError, match="bad.json"):
         load_report(bad)
+
+
+def test_load_report_rejects_undecodable_file(tmp_path):
+    bad = tmp_path / "binary.json"
+    bad.write_bytes(b"\xff\xfe\x00")
+    with pytest.raises(ReportError, match="binary.json"):
+        load_report(bad)

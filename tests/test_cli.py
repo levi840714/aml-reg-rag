@@ -221,7 +221,10 @@ def test_eval_compare_prints_side_by_side(workspace, monkeypatch):
     (workspace / "eval" / "curated.jsonl").write_text(CURATED_ROW, encoding="utf-8")
     monkeypatch.setattr(cli, "_open_index", open_with([CHUNK]))
     monkeypatch.setattr(cli, "indexed_article_keys", lambda db, table: {"G0380268:9"})
-    for flags in (["--no-hybrid", "--no-rewrite", "--no-rerank"], []):
+    for flags in (
+        ["--no-hybrid", "--no-rewrite", "--no-rerank"],
+        ["--hybrid", "--rewrite", "--rerank"],
+    ):
         assert runner.invoke(cli.app, ["eval", "run", "--retrieval-only", *flags]).exit_code == 0
     paths = sorted(str(p) for p in (workspace / "var" / "eval").glob("*.json"))
     result = runner.invoke(cli.app, ["eval", "compare", *paths])
