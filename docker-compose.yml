@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg18
+    environment:
+      # 僅供本機開發，資料庫只綁定 127.0.0.1
+      POSTGRES_USER: reg
+      POSTGRES_PASSWORD: reg
+      POSTGRES_DB: aml_reg
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reg -d aml_reg"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
