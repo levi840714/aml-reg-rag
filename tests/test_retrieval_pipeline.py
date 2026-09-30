@@ -36,8 +36,10 @@ class FakeReranker:
         self.scores = scores
         self.fallback = fallback
         self.seen = None
+        self.question = None
 
     def score(self, question, candidates):
+        self.question = question
         self.seen = [chunk.chunk_id for chunk in candidates]
         return Rerank(self.scores, self.fallback, 30, 5)
 
@@ -95,6 +97,36 @@ def test_rewrite_adds_candidates_from_subqueries():
     assert (result.input_tokens, result.output_tokens) == (10, 2)
 
 
+class ByQuery(FakeIndex):
+    def search(self, query, k):
+        self.queries.append((query, k))
+        return {"原問題": [A, B, C], "子查詢": [C, D]}[query]
+
+
+def test_rewrite_hybrid_keeps_best_vector_rank_across_queries():
+    bm25 = FakeBm25({"原問題": [(D, 4.0)], "子查詢": [(A, 2.0)]})
+    result = RetrievalPipeline(
+        ByQuery([]),
+        options(hybrid=True, rewrite=True),
+        bm25=bm25,
+        rewriter=FakeRewriter(["原問題", "子查詢"]),
+    ).retrieve("原問題", 4)
+    trace = {t.chunk_id: t for t in result.traces}[C.chunk_id]
+    assert trace.vector_rank == 1
+    assert bm25.queries == ["原問題", "子查詢"]
+
+
+def test_reranker_receives_original_question():
+    reranker = FakeReranker({A.chunk_id: 1, B.chunk_id: 1, C.chunk_id: 1, D.chunk_id: 1})
+    RetrievalPipeline(
+        ByQuery([]),
+        options(rewrite=True, rerank=True),
+        rewriter=FakeRewriter(["原問題", "子查詢"]),
+        reranker=reranker,
+    ).retrieve("原問題", 2)
+    assert reranker.question == "原問題"
+
+
 def test_rerank_reorders_and_ties_keep_rrf_order():
     reranker = FakeReranker({A.chunk_id: 0, B.chunk_id: 3, C.chunk_id: 3})
     result = RetrievalPipeline(FakeIndex([A, B, C]), options(rerank=True), reranker=reranker)
@@ -149,9 +181,10 @@ def test_every_combination_returns_k_chunks_with_traces(hybrid, rewrite, rerank)
     )
     retrieval = pipeline.retrieve("問題", 2)
     assert len(retrieval.chunks) == 2
-    assert [t.final_rank for t in retrieval.traces if t.final_rank] == [1, 2]
+    assert sorted(t.final_rank for t in retrieval.traces if t.final_rank) == [1, 2]
     expected_tokens = (10 if rewrite else 0) + (30 if rerank else 0)
     assert retrieval.input_tokens == expected_tokens
+    assert retrieval.output_tokens == (2 if rewrite else 0) + (5 if rerank else 0)
 
 
 def test_missing_component_is_rejected():

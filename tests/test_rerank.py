@@ -47,3 +47,33 @@ def test_api_error_falls_back():
 
     result = LlmReranker(RunnableLambda(boom)).score(QUESTION, CANDIDATES)
     assert (result.scores, result.fallback) == (None, "TimeoutError")
+
+
+def test_labels_are_normalized_before_lookup():
+    parsed = RerankOutput(
+        scores=[
+            ChunkScore(label="c1", relevance=1),
+            ChunkScore(label="[C2]", relevance=3),
+            ChunkScore(label=" C 3 ", relevance=2),
+        ]
+    )
+    model, _ = scripted([parsed])
+    result = LlmReranker(model).score(QUESTION, CANDIDATES)
+    assert result.scores == {
+        "G0380252:3:p1:k1-4": 1,
+        "G0380268:3:p1:k1-4": 3,
+        "G0380268:10": 2,
+    }
+
+
+def test_only_unknown_labels_fall_back_and_keep_tokens():
+    model, _ = scripted([output(C9=3)])
+    result = LlmReranker(model).score(QUESTION, CANDIDATES)
+    assert (result.scores, result.fallback) == (None, "無有效評分")
+    assert (result.input_tokens, result.output_tokens) != (0, 0)
+
+
+def test_empty_scores_fall_back():
+    model, _ = scripted([RerankOutput(scores=[])])
+    result = LlmReranker(model).score(QUESTION, CANDIDATES)
+    assert (result.scores, result.fallback) == (None, "無有效評分")

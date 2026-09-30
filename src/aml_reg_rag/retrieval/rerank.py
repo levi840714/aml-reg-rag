@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -67,10 +68,15 @@ class LlmReranker:
             return Rerank(None, "輸出無法解析", input_tokens, output_tokens)
         # 缺評分的段落視為 0 分，不存在的標籤忽略
         scores = {chunk.chunk_id: 0 for chunk in candidates}
+        matched = False
         for item in parsed.scores:
-            chunk = labeled.get(item.label.strip())
+            chunk = labeled.get(re.sub(r"[^C0-9]", "", item.label.upper()))
             if chunk is not None:
                 scores[chunk.chunk_id] = item.relevance
+                matched = True
+        if not matched:
+            # 全部標籤對不上時，全 0 分會抹掉 RRF 排序，改退回
+            return Rerank(None, "無有效評分", input_tokens, output_tokens)
         return Rerank(scores, None, input_tokens, output_tokens)
 
 
