@@ -18,6 +18,13 @@ from aml_reg_rag.retrieval.index import IndexMeta
 from tests.fakes import FakeIndex, answer, cite, point, refusal, retrieved, scripted
 
 FLASH = "google_genai:gemini-3.8-flash"
+SETTINGS = {
+    "llm_light_model": "google_genai:gemini-3.5-flash-lite",
+    "embedding_model": "google_genai:gemini-embedding-001",
+    "embedding_dim": 1536,
+    "chunk_max_chars": 600,
+    "top_k": 6,
+}
 VASP = retrieved("G0380268:9", "虛擬資產服務商應於確認客戶身分時，取得必要資訊。", score=0.8)
 BANK = retrieved(
     "G0380252:3:p1:k1-4",
@@ -202,6 +209,7 @@ def test_build_and_write_report(tmp_path):
         k=6,
         repeat=1,
         index=META,
+        settings=SETTINGS,
         curated=curated,
         retrieval_results=run_retrieval(FakeIndex([VASP]), curated, [], 6),
         answer_results=[answer_one(fake_ask(GOOD), judge_with(True), question(), 6, run=1)],
@@ -211,7 +219,9 @@ def test_build_and_write_report(tmp_path):
     assert (report.reviewed, report.unreviewed) == (1, 1)
     path = write_report(tmp_path, report)
     assert path.name == "20260930-080000-google_genai_gemini-3.8-flash.json"
-    assert json.loads(path.read_text(encoding="utf-8"))["index"]["chunk_count"] == 214
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["index"]["chunk_count"] == 214
+    assert saved["settings"] == SETTINGS
 
 
 def test_retrieval_only_report(tmp_path):
@@ -222,6 +232,7 @@ def test_retrieval_only_report(tmp_path):
         k=6,
         repeat=1,
         index=META,
+        settings=SETTINGS,
         curated=[question()],
         retrieval_results=run_retrieval(FakeIndex([VASP]), [question()], [], 6),
         answer_results=[],

@@ -7,6 +7,7 @@ from langchain_core.embeddings import Embeddings
 
 from aml_reg_rag.config import Settings
 from aml_reg_rag.ingest.chunker import chunk_article
+from aml_reg_rag.retrieval import index
 from aml_reg_rag.retrieval.embeddings import EmbeddingConfigError
 from aml_reg_rag.retrieval.index import (
     MAX_IDENTIFIER,
@@ -23,7 +24,14 @@ INDEX_NAME_SUFFIX = "_hnsw"
 
 class UntouchableDb:
     def __getattr__(self, name: str) -> Any:
-        raise AssertionError(f"不應在 embedding 完成前存取資料庫：{name}")
+        raise AssertionError(f"不應在 embedding 完成前修改資料庫：{name}")
+
+
+@pytest.fixture
+def skip_ensure(monkeypatch) -> list[str]:
+    calls: list[str] = []
+    monkeypatch.setattr(index, "ensure_database", lambda db: calls.append("ensure"))
+    return calls
 
 
 class StubEmbeddings(Embeddings):
@@ -62,7 +70,7 @@ def _rebuild_inputs() -> tuple[Settings, list[Any]]:
     return settings, chunk_article(article("虛擬資產服務商應確認客戶身分。"), 600)
 
 
-def test_rebuild_propagates_embedding_failure_without_touching_db():
+def test_rebuild_propagates_embedding_failure_without_touching_db(skip_ensure):
     settings, chunks = _rebuild_inputs()
     embeddings = StubEmbeddings(RuntimeError("quota"))
     with pytest.raises(RuntimeError, match="quota"):
@@ -75,7 +83,7 @@ def test_rebuild_propagates_embedding_failure_without_touching_db():
         )
 
 
-def test_rebuild_rejects_wrong_dimension_without_touching_db():
+def test_rebuild_rejects_wrong_dimension_without_touching_db(skip_ensure):
     settings, chunks = _rebuild_inputs()
     embeddings = StubEmbeddings([[0.0] * 4])
     with pytest.raises(EmbeddingConfigError):
@@ -88,7 +96,7 @@ def test_rebuild_rejects_wrong_dimension_without_touching_db():
         )
 
 
-def test_rebuild_rejects_empty_chunks_without_touching_db():
+def test_rebuild_rejects_empty_chunks_without_touching_db(skip_ensure):
     settings, _ = _rebuild_inputs()
     with pytest.raises(ValueError, match="沒有可寫入的段落"):
         rebuild_index(
@@ -98,6 +106,20 @@ def test_rebuild_rejects_empty_chunks_without_touching_db():
             [],
             date(2026, 9, 18),
         )
+
+
+def test_rebuild_checks_database_before_embedding(skip_ensure):
+    settings, chunks = _rebuild_inputs()
+    embeddings = StubEmbeddings(RuntimeError("quota"))
+    with pytest.raises(RuntimeError, match="quota"):
+        rebuild_index(
+            UntouchableDb(),  # type: ignore[arg-type]
+            settings,
+            embeddings,
+            chunks,
+            date(2026, 9, 18),
+        )
+    assert skip_ensure == ["ensure"]
 
 
 def test_to_retrieved_strips_header_and_converts_distance():

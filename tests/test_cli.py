@@ -1,3 +1,4 @@
+import json
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 
@@ -88,8 +89,18 @@ def test_unexpected_errors_show_only_type_and_status(workspace, monkeypatch):
     monkeypatch.setattr(cli, "_open_index", open_failing(ApiError("key=secret-value")))
     result = runner.invoke(cli.app, ["search", "問題"])
     assert result.exit_code == 1
-    assert "ApiError（狀態碼 429）" in result.output
+    assert "執行失敗：ApiError（狀態碼 429）；請確認 .env 的設定與 API key" in result.output
     assert "secret-value" not in result.output
+
+
+def test_invalid_settings_show_fields_without_values(workspace, monkeypatch):
+    monkeypatch.setenv("TOP_K", "secret-abc")
+    monkeypatch.setenv("EMBEDDING_DIM", "99999")
+    result = runner.invoke(cli.app, ["search", "問題"])
+    assert result.exit_code == 1
+    assert "設定值不合法：" in result.output
+    assert "embedding_dim" in result.output and "top_k" in result.output
+    assert "secret-abc" not in result.output
 
 
 @pytest.mark.parametrize("code", [lambda self: 1, "e3q8"])
@@ -101,7 +112,7 @@ def test_non_int_error_codes_are_not_shown(workspace, monkeypatch, code):
     monkeypatch.setattr(cli, "_open_index", open_failing(OddError("x")))
     result = runner.invoke(cli.app, ["search", "問題"])
     assert result.exit_code == 1
-    assert "OddError" in result.output
+    assert "執行失敗：OddError；請確認 .env 的設定與 API key" in result.output
     assert "狀態碼" not in result.output
 
 
@@ -153,7 +164,11 @@ def test_eval_run_retrieval_only_writes_report(workspace, monkeypatch):
     result = runner.invoke(cli.app, ["eval", "run", "--retrieval-only"])
     assert result.exit_code == 0, result.output
     assert "Hit@1" in result.output
-    assert len(list((workspace / "var" / "eval").glob("*-retrieval.json"))) == 1
+    reports = list((workspace / "var" / "eval").glob("*-retrieval.json"))
+    assert len(reports) == 1
+    saved = json.loads(reports[0].read_text(encoding="utf-8"))
+    assert saved["settings"]["chunk_max_chars"] == 600
+    assert saved["settings"]["top_k"] == 6
 
 
 def test_eval_run_rejects_unknown_articles(workspace, monkeypatch):

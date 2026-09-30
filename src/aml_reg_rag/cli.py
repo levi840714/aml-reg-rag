@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import typer
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from rich.console import Console
 from rich.markup import escape
 
@@ -29,6 +30,7 @@ from aml_reg_rag.evaluation.runner import (
 from aml_reg_rag.graph.build import build_graph, make_drafter, run_ask
 from aml_reg_rag.ingest.pipeline import load_source, run_ingest
 from aml_reg_rag.ingest.source import SourceError
+from aml_reg_rag.llm import describe_error
 from aml_reg_rag.retrieval.embeddings import EmbeddingConfigError, make_embeddings
 from aml_reg_rag.retrieval.index import (
     ChunkIndex,
@@ -201,6 +203,7 @@ def eval_run(
             k=top_k,
             repeat=repeat,
             index=opened.meta,
+            settings=_report_settings(settings),
             curated=curated,
             retrieval_results=retrieval_results,
             answer_results=answer_results,
@@ -208,6 +211,16 @@ def eval_run(
         path = write_report(settings.var_dir / "eval", report)
         render.render_eval(console, report)
         console.print(f"結果已寫入 {escape(str(path))}")
+
+
+def _report_settings(settings: Settings) -> dict[str, str | int]:
+    return {
+        "llm_light_model": settings.llm_light_model,
+        "embedding_model": settings.embedding_model,
+        "embedding_dim": settings.embedding_dim,
+        "chunk_max_chars": settings.chunk_max_chars,
+        "top_k": settings.top_k,
+    }
 
 
 @contextmanager
@@ -230,12 +243,13 @@ def _handle_errors() -> Iterator[None]:
         raise typer.Exit(1) from exc
     except typer.Exit:
         raise
+    except ValidationError as exc:
+        # 只列欄位名稱，輸入值可能是誤填的 key
+        fields = ", ".join(".".join(str(part) for part in error["loc"]) for error in exc.errors())
+        console.print(f"[red]設定值不合法：{escape(fields)}[/]")
+        raise typer.Exit(1) from exc
     except Exception as exc:
-        # 外部 API 的錯誤訊息可能帶有請求細節，只顯示例外類型與狀態碼
-        status = next(
-            (v for n in ("status_code", "code") if isinstance(v := getattr(exc, n, None), int)),
-            None,
+        console.print(
+            f"[red]執行失敗：{escape(describe_error(exc))}；請確認 .env 的設定與 API key[/]"
         )
-        suffix = f"（狀態碼 {status}）" if status else ""
-        console.print(f"[red]執行失敗：{type(exc).__name__}{suffix}[/]")
         raise typer.Exit(1) from exc

@@ -42,6 +42,9 @@ docker compose up -d        # 或將 DATABASE_URL 指向已安裝 pgvector 的�
 uv run reg ingest
 ```
 
+- `reg ingest` 會刪除並重建自己的索引表（`chunks_*` 與 `index_meta` 中對應的列），`DATABASE_URL` 不要指向共用、測試或正式環境的資料庫；指向非本機主機時需加 `--allow-remote` 才會執行
+- `.env` 設定 `LANGSMITH_TRACING=true` 時，問題與回答會送到 LangSmith
+
 ## 使用
 
 ```bash

@@ -166,14 +166,15 @@ def rebuild_index(
 ) -> IndexMeta:
     if not chunks:
         raise ValueError("沒有可寫入的段落")
-    # 先完成 embedding，失敗時不會破壞既有索引
+    # 連線與擴充檢查不具破壞性，先做可避免 embedding 完才發現資料庫不可用
+    ensure_database(db)
+    # 刪除與覆寫在 embedding 完成後才執行，失敗時不會破壞既有索引
     vectors = embeddings.embed_documents([chunk.page_content for chunk in chunks])
     actual_dim = len(vectors[0])
     if actual_dim != settings.embedding_dim:
         raise EmbeddingConfigError(
             f"embedding 實際維度為 {actual_dim}，與 EMBEDDING_DIM={settings.embedding_dim} 不符"
         )
-    ensure_database(db)
     table = table_name(settings.embedding_model, settings.embedding_dim)
     with db.sql.begin() as connection:
         connection.execute(

@@ -24,6 +24,7 @@ from aml_reg_rag.evaluation.metrics import (
     summarize_retrieval,
 )
 from aml_reg_rag.graph.state import AskState, labeled_chunks
+from aml_reg_rag.llm import describe_error
 from aml_reg_rag.models import Answer, RetrievedChunk
 from aml_reg_rag.retrieval.index import ChunkIndex, IndexMeta
 
@@ -38,6 +39,7 @@ class EvalReport(BaseModel):
     k: int
     repeat: int
     index: IndexMeta
+    settings: dict[str, str | int]
     reviewed: int
     unreviewed: int
     retrieval: dict[str, RetrievalSummary]
@@ -72,7 +74,7 @@ def run_retrieval(
                     expected=expected,
                     ranked=[],
                     top_score=None,
-                    error=_describe(exc),
+                    error=describe_error(exc),
                 )
             )
             continue
@@ -115,7 +117,7 @@ def answer_one(
     try:
         state = ask(question.question, k)
     except Exception as exc:  # 記錄後繼續下一題
-        result.error = _describe(exc)
+        result.error = describe_error(exc)
         result.seconds = time.perf_counter() - started
         return result
     result.seconds = time.perf_counter() - started
@@ -156,6 +158,7 @@ def build_report(
     k: int,
     repeat: int,
     index: IndexMeta,
+    settings: dict[str, str | int],
     curated: list[CuratedQuestion],
     retrieval_results: list[RetrievalResult],
     answer_results: list[AnswerResult],
@@ -180,6 +183,7 @@ def build_report(
         k=k,
         repeat=repeat,
         index=index,
+        settings=settings,
         reviewed=reviewed,
         unreviewed=len(curated) - reviewed,
         retrieval=retrieval,
@@ -197,13 +201,6 @@ def write_report(eval_dir: Path, report: EvalReport) -> Path:
     path = eval_dir / f"{report.created_at:%Y%m%d-%H%M%S}-{label}.json"
     path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return path
-
-
-def _describe(exc: Exception) -> str:
-    """只取例外類型與狀態碼；訊息可能含請求細節。"""
-    code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-    name = type(exc).__name__
-    return f"{name}（狀態碼 {code}）" if code else name
 
 
 def _judge(
