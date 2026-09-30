@@ -32,7 +32,7 @@
 - 回答只依據檢索到的條文，引用是否屬實由程式驗證，不交給 LLM
 - 問題會送到 LLM 與 embedding API，README 提醒勿輸入客戶個資或案件機敏資訊
 - 不在 log、trace 或錯誤訊息中出現 API key
-- docker compose 的資料庫只綁定 `127.0.0.1`
+- docker compose 的資料庫只綁定 `127.0.0.1:55432`（避開本機 Cloud SQL proxy 使用的 543x）；ingest 會刪表重建，`DATABASE_URL` 不可指向共用或正式資料庫
 - 輸出僅供查詢法規依據，不構成法律意見（README 註明）
 
 ## 2. 架構
@@ -72,7 +72,7 @@ v1 為單次問答，無中斷恢復需求，不使用 checkpointer。
 aml_reg_rag/
 ├── AGENTS.md / CLAUDE.md / README.md / .gitignore / .env.example
 ├── pyproject.toml / uv.lock
-├── docker-compose.yml         # pgvector/pgvector:pg18，綁定 127.0.0.1:5433
+├── docker-compose.yml         # pgvector/pgvector:pg18，綁定 127.0.0.1:55432
 ├── data/corpus.toml           # 語料法規清單
 ├── eval/
 │   ├── curated.jsonl          # 人工題
@@ -124,7 +124,7 @@ aml_reg_rag/
 | `EVAL_JUDGE_MODEL` | `google_genai:gemini-3.8-flash` | 要點涵蓋判斷；固定預設，不跟隨 `LLM_MODEL`，比較生成模型時量尺不變 |
 | `EMBEDDING_MODEL` | `google_genai:gemini-embedding-001` | 傳給 `init_embeddings` |
 | `EMBEDDING_DIM` | 1536 | 需 ≤ 2000（pgvector HNSW 上限） |
-| `DATABASE_URL` | `postgresql+psycopg://reg:reg@localhost:5433/aml_reg` | 本機 Postgres 或 docker compose |
+| `DATABASE_URL` | `postgresql+psycopg://reg:reg@localhost:55432/aml_reg` | 本機 Postgres 或 docker compose |
 | `TOP_K` | 6 | 檢索段數 |
 | `CHUNK_MAX_CHARS` | 600 | 切段上限（內文字元數，含前綴、不含標頭） |
 | `LLM_TIMEOUT` | 120 | 單次 LLM 呼叫逾時（秒） |

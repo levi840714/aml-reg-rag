@@ -85,4 +85,5 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 - `.env` 不進版控，只提交 `.env.example`
 - 不在 log、trace 或錯誤訊息中出現 API key；外部 API 錯誤只顯示例外類型與狀態碼
 - 問題會送到 LLM 與 embedding API，不輸入客戶個資或案件機敏資訊
-- docker compose 的資料庫只綁定 `127.0.0.1`
+- docker compose 的資料庫只綁定 `127.0.0.1:55432`；避開 543x，因為本機的 Cloud SQL proxy 使用這些 port
+- `reg ingest` 會刪表重建，`DATABASE_URL` 不可指向共用、測試或正式環境的資料庫

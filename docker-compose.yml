@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: reg
       POSTGRES_DB: aml_reg
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:

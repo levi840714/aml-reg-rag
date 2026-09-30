@@ -35,7 +35,7 @@
 aml_reg_rag/
 ├── pyproject.toml / uv.lock / README.md / .env.example / .gitignore
 ├── AGENTS.md / CLAUDE.md
-├── docker-compose.yml               # pgvector/pgvector:pg18，綁定 127.0.0.1:5433
+├── docker-compose.yml               # pgvector/pgvector:pg18，綁定 127.0.0.1:55432
 ├── data/corpus.toml                 # 6 部法規的 pcode
 ├── eval/curated.jsonl               # 人工題（20 題）
 ├── src/aml_reg_rag/
@@ -251,7 +251,8 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 - `.env` 不進版控，只提交 `.env.example`
 - 不在 log、trace 或錯誤訊息中出現 API key；外部 API 錯誤只顯示例外類型與狀態碼
 - 問題會送到 LLM 與 embedding API，不輸入客戶個資或案件機敏資訊
-- docker compose 的資料庫只綁定 `127.0.0.1`
+- docker compose 的資料庫只綁定 `127.0.0.1:55432`；避開 543x，因為本機的 Cloud SQL proxy 使用這些 port
+- `reg ingest` 會刪表重建，`DATABASE_URL` 不可指向共用、測試或正式環境的資料庫
 ````
 
 - [ ] **Step 5: 建立 `.env.example`、`docker-compose.yml` 與 `data/corpus.toml`**
@@ -270,7 +271,7 @@ EMBEDDING_MODEL=google_genai:gemini-embedding-001
 EMBEDDING_DIM=1536
 
 # 本機 Postgres（需安裝 pgvector），或 docker compose 啟動的資料庫
-DATABASE_URL=postgresql+psycopg://reg:reg@localhost:5433/aml_reg
+DATABASE_URL=postgresql+psycopg://reg:reg@localhost:55432/aml_reg
 
 # 只需填入實際使用的 provider
 GOOGLE_API_KEY=
@@ -303,7 +304,7 @@ services:
       POSTGRES_PASSWORD: reg
       POSTGRES_DB: aml_reg
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:55432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -594,7 +595,7 @@ class Settings(BaseSettings):
     eval_judge_model: str = "google_genai:gemini-3.8-flash"
     embedding_model: str = "google_genai:gemini-embedding-001"
     embedding_dim: int = Field(default=1536, gt=0, le=HNSW_MAX_DIM)
-    database_url: str = "postgresql+psycopg://reg:reg@localhost:5433/aml_reg"
+    database_url: str = "postgresql+psycopg://reg:reg@localhost:55432/aml_reg"
     top_k: int = Field(default=6, gt=0)
     chunk_max_chars: int = Field(default=600, gt=0)
     llm_timeout: float = 120
@@ -2012,7 +2013,7 @@ docker compose up -d --wait
 uv run pytest tests/test_integration_db.py -m integration -q
 ```
 
-Expected: `1 passed`。本機 5433 port 已被占用時，改用 `DATABASE_URL` 指向其他含 pgvector 的資料庫後再執行。容器保持執行，後續 task 會用到。
+Expected: `1 passed`。55432 port 已被占用時停下來回報，**不可**把 `DATABASE_URL` 改指向其他既有資料庫（這個測試與 `reg ingest` 都會刪表重建）。容器保持執行，後續 task 會用到。
 
 - [ ] **Step 6: Commit**
 
