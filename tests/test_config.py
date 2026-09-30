@@ -31,7 +31,7 @@ def test_non_positive_llm_timeout_is_rejected():
 
 
 def test_retrieval_defaults_follow_ablation():
-    # v2 ablation：rewrite 沒有提升檢索且每題多約 1.4 秒，預設關閉
+    # v2 ablation：rewrite 沒有提升檢索且每題多約 1.1 秒，預設關閉
     settings = Settings(_env_file=None)
     assert (settings.retrieval_hybrid, settings.retrieval_rewrite, settings.retrieval_rerank) == (
         True,
