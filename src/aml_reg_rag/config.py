@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     chunk_max_chars: int = Field(default=600, gt=0)
     llm_timeout: float = Field(default=120, gt=0)
     retrieval_hybrid: bool = True
-    retrieval_rewrite: bool = True
+    retrieval_rewrite: bool = False
     retrieval_rerank: bool = True
     retrieval_candidates: int = Field(default=20, gt=0)
     data_dir: Path = PROJECT_ROOT / "data"

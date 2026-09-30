@@ -30,11 +30,12 @@ def test_non_positive_llm_timeout_is_rejected():
         Settings(_env_file=None, llm_timeout=0)
 
 
-def test_retrieval_defaults_enable_all_steps():
+def test_retrieval_defaults_follow_ablation():
+    # v2 ablation：rewrite 沒有提升檢索且每題多約 1.4 秒，預設關閉
     settings = Settings(_env_file=None)
     assert (settings.retrieval_hybrid, settings.retrieval_rewrite, settings.retrieval_rerank) == (
         True,
-        True,
+        False,
         True,
     )
     assert settings.retrieval_candidates == 20

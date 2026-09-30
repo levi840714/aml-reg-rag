@@ -210,7 +210,7 @@ def test_retrieval_flags_override_settings(workspace, monkeypatch):
         yield cli.OpenedIndex(db=None, retriever=FakeRetriever([CHUNK]), meta=META)
 
     monkeypatch.setattr(cli, "_open_index", opened)
-    result = runner.invoke(cli.app, ["search", "問題", "--no-hybrid", "--rerank"])
+    result = runner.invoke(cli.app, ["search", "問題", "--no-hybrid", "--rewrite"])
     assert result.exit_code == 0, result.output
     options = captured["options"]
     assert (options.hybrid, options.rewrite, options.rerank) == (False, True, True)

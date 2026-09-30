@@ -193,7 +193,7 @@ def test_missing_component_is_rejected():
 
 
 def test_options_label_and_overrides(settings):
-    assert RetrievalOptions.from_settings(settings).label == "hybrid+rewrite+rerank"
+    assert RetrievalOptions.from_settings(settings).label == "hybrid+rerank"
     overridden = RetrievalOptions.from_settings(settings, hybrid=False, rewrite=False, rerank=False)
     assert overridden.label == "vector"
     assert overridden.candidates == settings.retrieval_candidates
