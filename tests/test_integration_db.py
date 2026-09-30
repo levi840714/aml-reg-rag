@@ -8,10 +8,12 @@ from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from aml_reg_rag.config import PROJECT_ROOT, Settings
 from aml_reg_rag.ingest.chunker import chunk_article
+from aml_reg_rag.retrieval.bm25 import Bm25Index
 from aml_reg_rag.retrieval.index import (
     Database,
     indexed_article_keys,
     is_local,
+    load_chunks,
     open_index,
     rebuild_index,
 )
@@ -50,5 +52,10 @@ def test_rebuild_and_search_with_real_postgres():
         assert results[0].chunk_id == "G0380252:3"
         assert results[0].score == pytest.approx(1.0)
         assert indexed_article_keys(db, meta.table_name) == {"G0380268:9", "G0380252:3"}
+        entries = load_chunks(db, meta.table_name)
+        assert [chunk.chunk_id for chunk, _ in entries] == ["G0380252:3", "G0380268:9"]
+        assert entries[1][1].startswith("【提供虛擬資產服務之事業或人員防制洗錢及打擊資恐辦法")
+        # 兩段的語料 IDF 會退化為 0，排名由單元測試以 fixture 驗證，這裡只確認能由資料表建立
+        assert Bm25Index(entries).search("虛擬資產服務商", 1) == []
     finally:
         db.close()

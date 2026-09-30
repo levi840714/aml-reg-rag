@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS index_meta (
 )
 """
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_LOADED_METADATA = ("pcode", "law_name", "article_no", "locator", "source_url")
 INSERT_META = """
 INSERT INTO index_meta VALUES (
     :table_name, :embedding_model, :embedding_dim, :chunk_max_chars,
@@ -234,6 +235,23 @@ def indexed_article_keys(db: Database, table: str) -> set[str]:
     with db.sql.connect() as connection:
         rows = connection.execute(text(f'SELECT DISTINCT pcode, article_no FROM "{table}"'))
         return {f"{pcode}:{article_no}" for pcode, article_no in rows}
+
+
+def load_chunks(db: Database, table: str) -> list[tuple[RetrievedChunk, str]]:
+    """讀出索引表全部段落與全文，供建立 BM25。"""
+    query = text(
+        f"SELECT chunk_id, content, pcode, law_name, article_no, locator, source_url "
+        f'FROM "{table}" ORDER BY chunk_id'
+    )
+    with db.sql.connect() as connection:
+        rows = connection.execute(query).mappings().all()
+    entries = []
+    for row in rows:
+        metadata = {key: row[key] for key in _LOADED_METADATA}
+        document = Document(id=row["chunk_id"], page_content=row["content"], metadata=metadata)
+        # 距離 1.0 使相似度為 0，BM25 的分數另外記錄
+        entries.append((to_retrieved(document, 1.0), row["content"]))
+    return entries
 
 
 def _open_store(db: Database, table: str, embeddings: Embeddings) -> PGVectorStore:
