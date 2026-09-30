@@ -17,7 +17,7 @@ def render_warnings(console: Console, warnings: list[str]) -> None:
 
 def render_ingest(console: Console, report: IngestReport) -> None:
     render_warnings(console, report.warnings)
-    console.print(f"已建立索引 [bold]{report.meta.table_name}[/]")
+    console.print(f"已建立索引 [bold]{escape(report.meta.table_name)}[/]")
     console.print(
         f"法規 {report.laws} 部、條文 {report.articles} 條、段落 {report.chunks} 段"
         f"（超過切段上限 {report.oversized} 段）"
@@ -73,15 +73,17 @@ def render_answer(console: Console, state: AskState, *, show_context: bool = Fal
 
 def render_eval(console: Console, report: EvalReport) -> None:
     console.print(
-        f"模型：{report.model or '（只評估檢索）'}　judge：{report.judge_model or '—'}　"
-        f"k={report.k}　repeat={report.repeat}　索引：{report.index.table_name}"
+        f"模型：{escape(report.model or '（只評估檢索）')}　"
+        f"judge：{escape(report.judge_model or '—')}　"
+        f"k={report.k}　repeat={report.repeat}　索引：{escape(report.index.table_name)}"
     )
     console.print(f"人工題：已審核 {report.reviewed} 題、未審核 {report.unreviewed} 題")
-    retrieval = Table("檢索", "題數", "Hit@1", "Hit@3", "Hit@k", "Recall@k", "MRR")
+    retrieval = Table("檢索", "題數", "錯誤", "Hit@1", "Hit@3", "Hit@k", "Recall@k", "MRR")
     for name, summary in report.retrieval.items():
         retrieval.add_row(
             name,
             str(summary.questions),
+            str(summary.errors),
             _pct(summary.hit_at_1),
             _pct(summary.hit_at_3),
             _pct(summary.hit_at_k),
@@ -131,14 +133,16 @@ def _render_generation(console: Console, report: EvalReport) -> None:
     if report.consistency is not None:
         console.print(f"重複執行一致率：{_pct(report.consistency)}")
         for item in report.unstable:
-            console.print(f"  不穩定：{item.question_id} {escape(', '.join(item.outcomes))}")
+            console.print(
+                f"  不穩定：{escape(item.question_id)} {escape(', '.join(item.outcomes))}"
+            )
 
 
 def _render_refusal(console: Console, answer: Answer, chunks: list[RetrievedChunk]) -> None:
     console.print(f"[bold yellow]條文不足以回答：[/]{escape(answer.missing or '')}")
     console.print("檢索到的條文：")
     for chunk in chunks:
-        console.print(f"  - {escape(chunk.title)} {chunk.source_url}")
+        console.print(f"  - {escape(chunk.title)} {escape(chunk.source_url)}")
 
 
 def _pct(value: float | None) -> str:

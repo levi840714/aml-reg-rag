@@ -23,3 +23,8 @@ def test_judge_model_does_not_follow_llm_model(monkeypatch):
     settings = Settings(_env_file=None)
     assert settings.llm_model == "google_genai:gemini-3.5-flash-lite"
     assert settings.eval_judge_model == "google_genai:gemini-3.8-flash"
+
+
+def test_non_positive_llm_timeout_is_rejected():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, llm_timeout=0)

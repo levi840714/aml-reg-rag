@@ -11,3 +11,9 @@ def settings(tmp_path) -> Settings:
         eval_dir=tmp_path / "eval",
         var_dir=tmp_path / "var",
     )
+
+
+@pytest.fixture(autouse=True)
+def clean_settings_env(monkeypatch) -> None:
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)

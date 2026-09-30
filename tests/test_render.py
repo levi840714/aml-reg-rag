@@ -78,3 +78,40 @@ def test_render_eval_warns_when_pricing_is_missing():
     console = Console(record=True, width=200)
     render_eval(console, report)
     assert "PRICING 缺少 unknown:model" in console.export_text()
+
+
+def test_render_answer_prints_markup_literally():
+    state = initial_state("問題", 6) | {
+        "chunks": CHUNKS,
+        "answer": answer(point("[bold]x[/] 重點", cite("S1", "[bold]y[/] 引述"))),
+        "verified": True,
+    }
+    text = output(state)
+    assert "[bold]x[/] 重點" in text
+    assert "「[bold]y[/] 引述」" in text
+
+
+def test_render_eval_shows_retrieval_errors_column():
+    report = build_report(
+        created_at=datetime(2026, 9, 30, tzinfo=UTC),
+        model=None,
+        judge_model=None,
+        k=6,
+        repeat=1,
+        index=IndexMeta(
+            table_name="chunks_test",
+            embedding_model="google_genai:gemini-embedding-001",
+            embedding_dim=1536,
+            chunk_max_chars=600,
+            source_update_date=date(2026, 9, 18),
+            chunk_count=214,
+            ingested_at=datetime(2026, 9, 30, tzinfo=UTC),
+        ),
+        curated=[],
+        retrieval_results=[],
+        answer_results=[],
+    )
+    console = Console(record=True, width=200)
+    render_eval(console, report)
+    header = next(line for line in console.export_text().splitlines() if "題數" in line)
+    assert header.index("題數") < header.index("錯誤") < header.index("Hit@1")

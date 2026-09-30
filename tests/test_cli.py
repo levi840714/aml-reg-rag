@@ -32,6 +32,7 @@ def workspace(monkeypatch, tmp_path):
     monkeypatch.setenv("VAR_DIR", str(tmp_path / "var"))
     monkeypatch.setenv("EVAL_DIR", str(tmp_path / "eval"))
     monkeypatch.setattr(cli, "console", Console(width=200))
+    monkeypatch.setattr(cli, "load_dotenv", lambda *args, **kwargs: None)
     return tmp_path
 
 
@@ -89,6 +90,45 @@ def test_unexpected_errors_show_only_type_and_status(workspace, monkeypatch):
     assert result.exit_code == 1
     assert "ApiError（狀態碼 429）" in result.output
     assert "secret-value" not in result.output
+
+
+@pytest.mark.parametrize("code", [lambda self: 1, "e3q8"])
+def test_non_int_error_codes_are_not_shown(workspace, monkeypatch, code):
+    class OddError(Exception):
+        pass
+
+    OddError.code = code  # type: ignore[attr-defined]
+    monkeypatch.setattr(cli, "_open_index", open_failing(OddError("x")))
+    result = runner.invoke(cli.app, ["search", "問題"])
+    assert result.exit_code == 1
+    assert "OddError" in result.output
+    assert "狀態碼" not in result.output
+
+
+def test_ask_exits_nonzero_when_verification_fails(workspace, monkeypatch):
+    bad = answer(point("錯誤。", cite("S1", "不存在的引述")))
+    drafter, _ = scripted([bad, bad])
+    monkeypatch.setattr(cli, "_open_index", open_with([CHUNK]))
+    monkeypatch.setattr(cli, "make_drafter", lambda model, timeout: drafter)
+    result = runner.invoke(cli.app, ["ask", "問題"])
+    assert result.exit_code == 1
+    assert "引用驗證失敗" in result.output
+
+
+def test_ask_warns_when_trace_cannot_be_written(workspace, monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+
+    drafter, _ = scripted(
+        [answer(point("應確認客戶身分。", cite("S1", "虛擬資產服務商應確認客戶身分")))]
+    )
+    monkeypatch.setattr(cli, "_open_index", open_with([CHUNK]))
+    monkeypatch.setattr(cli, "make_drafter", lambda model, timeout: drafter)
+    monkeypatch.setattr(cli, "append_trace", fail)
+    result = runner.invoke(cli.app, ["ask", "問題"])
+    assert result.exit_code == 0, result.output
+    assert "應確認客戶身分。" in result.output
+    assert "無法寫入 trace：OSError" in result.output
 
 
 def test_eval_generate_refuses_to_overwrite(workspace):

@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://reg:reg@localhost:55432/aml_reg"
     top_k: int = Field(default=6, gt=0)
     chunk_max_chars: int = Field(default=600, gt=0)
-    llm_timeout: float = 120
+    llm_timeout: float = Field(default=120, gt=0)
     data_dir: Path = PROJECT_ROOT / "data"
     eval_dir: Path = PROJECT_ROOT / "eval"
     var_dir: Path = PROJECT_ROOT / "var"

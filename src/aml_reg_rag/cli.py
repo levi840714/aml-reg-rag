@@ -49,8 +49,13 @@ KNOWN_ERRORS = (
     SourceError,
 )
 
-app = typer.Typer(help="台灣防制洗錢法規問答（RAG）", no_args_is_help=True)
-eval_app = typer.Typer(help="評估檢索與回答品質", no_args_is_help=True)
+# 關閉 locals 顯示，避免 traceback 印出含資料庫密碼的 Settings
+app = typer.Typer(
+    help="台灣防制洗錢法規問答（RAG）", no_args_is_help=True, pretty_exceptions_show_locals=False
+)
+eval_app = typer.Typer(
+    help="評估檢索與回答品質", no_args_is_help=True, pretty_exceptions_show_locals=False
+)
 app.add_typer(eval_app, name="eval")
 console = Console()
 
@@ -72,23 +77,24 @@ def ingest(
     refresh: bool = typer.Option(False, "--refresh", help="重新下載全國法規資料庫資料"),
 ) -> None:
     """下載法規、切段並重建索引。"""
-    settings = Settings()
     with _handle_errors():
+        settings = Settings()
         db = Database.connect(settings.database_url)
         try:
             report = run_ingest(settings, db, make_embeddings(settings), refresh=refresh)
         finally:
             db.close()
-    render.render_ingest(console, report)
+        render.render_ingest(console, report)
 
 
 @app.command()
 def search(question: str, k: int | None = typer.Option(None, "--k", min=1)) -> None:
     """只檢索，不呼叫 LLM。"""
-    settings = Settings()
-    with _handle_errors(), _open_index(settings) as opened:
-        chunks = opened.index.search(question, k or settings.top_k)
-    render.render_search(console, chunks)
+    with _handle_errors():
+        settings = Settings()
+        with _open_index(settings) as opened:
+            chunks = opened.index.search(question, k or settings.top_k)
+        render.render_search(console, chunks)
 
 
 @app.command()
@@ -98,18 +104,25 @@ def ask(
     show_context: bool = typer.Option(False, "--show-context", help="一併顯示檢索到的段落"),
 ) -> None:
     """依法規條文回答問題。"""
-    settings = Settings()
-    with _handle_errors(), _open_index(settings) as opened:
-        graph = build_graph(opened.index, make_drafter(settings.llm_model, settings.llm_timeout))
-        started = time.perf_counter()
-        state = run_ask(graph, question, k or settings.top_k)
-        seconds = time.perf_counter() - started
-    now = datetime.now(UTC)
-    record = ask_record(
-        state, table=opened.meta.table_name, model=settings.llm_model, seconds=seconds, now=now
-    )
-    append_trace(settings.var_dir / "traces", record, now)
-    render.render_answer(console, state, show_context=show_context)
+    with _handle_errors():
+        settings = Settings()
+        with _open_index(settings) as opened:
+            drafter = make_drafter(settings.llm_model, settings.llm_timeout)
+            graph = build_graph(opened.index, drafter)
+            started = time.perf_counter()
+            state = run_ask(graph, question, k or settings.top_k)
+            seconds = time.perf_counter() - started
+        render.render_answer(console, state, show_context=show_context)
+        now = datetime.now(UTC)
+        record = ask_record(
+            state, table=opened.meta.table_name, model=settings.llm_model, seconds=seconds, now=now
+        )
+        try:
+            append_trace(settings.var_dir / "traces", record, now)
+        except OSError as exc:
+            render.render_warnings(console, [f"無法寫入 trace：{type(exc).__name__}"])
+        if not state["verified"]:
+            raise typer.Exit(1)
 
 
 @eval_app.command("generate")
@@ -117,20 +130,22 @@ def eval_generate(
     overwrite: bool = typer.Option(False, "--overwrite", help="覆寫已存在的自動生成題"),
 ) -> None:
     """以輕量模型為每條條文產生一題。"""
-    settings = Settings()
-    path = settings.eval_dir / "synthetic.jsonl"
-    if path.exists() and not overwrite:
-        console.print(f"[red]{path} 已存在，要重新產生請加 --overwrite[/]")
-        raise typer.Exit(1)
     with _handle_errors():
+        settings = Settings()
+        path = settings.eval_dir / "synthetic.jsonl"
+        if path.exists() and not overwrite:
+            console.print(f"[red]{escape(str(path))} 已存在，要重新產生請加 --overwrite[/]")
+            raise typer.Exit(1)
         source = load_source(settings)
         render.render_warnings(console, source.warnings)
         generator = make_generator(settings.llm_light_model, settings.llm_timeout)
         result = generate_questions(
             source.articles, generator, settings.llm_light_model, datetime.now(UTC)
         )
-    write_synthetic(path, result.questions)
-    console.print(f"已產生 {len(result.questions)} 題（失敗 {result.failures} 題）：{path}")
+        write_synthetic(path, result.questions)
+        console.print(
+            f"已產生 {len(result.questions)} 題（失敗 {result.failures} 題）：{escape(str(path))}"
+        )
 
 
 @eval_app.command("run")
@@ -141,10 +156,10 @@ def eval_run(
     repeat: int = typer.Option(1, "--repeat", min=1, help="生成階段每題執行次數"),
 ) -> None:
     """執行 eval 並寫入 var/eval/。"""
-    settings = Settings()
-    top_k = k or settings.top_k
-    model_name = None if retrieval_only else model or settings.llm_model
     with _handle_errors():
+        settings = Settings()
+        top_k = k or settings.top_k
+        model_name = None if retrieval_only else model or settings.llm_model
         curated = load_curated(settings.eval_dir / "curated.jsonl")
         synthetic = load_synthetic(settings.eval_dir / "synthetic.jsonl")
         if not synthetic:
@@ -177,9 +192,9 @@ def eval_run(
             retrieval_results=retrieval_results,
             answer_results=answer_results,
         )
-    path = write_report(settings.var_dir / "eval", report)
-    render.render_eval(console, report)
-    console.print(f"結果已寫入 {path}")
+        path = write_report(settings.var_dir / "eval", report)
+        render.render_eval(console, report)
+        console.print(f"結果已寫入 {escape(str(path))}")
 
 
 @contextmanager
@@ -204,7 +219,10 @@ def _handle_errors() -> Iterator[None]:
         raise
     except Exception as exc:
         # 外部 API 的錯誤訊息可能帶有請求細節，只顯示例外類型與狀態碼
-        status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        status = next(
+            (v for n in ("status_code", "code") if isinstance(v := getattr(exc, n, None), int)),
+            None,
+        )
         suffix = f"（狀態碼 {status}）" if status else ""
         console.print(f"[red]執行失敗：{type(exc).__name__}{suffix}[/]")
         raise typer.Exit(1) from exc
