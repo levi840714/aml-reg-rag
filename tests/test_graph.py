@@ -38,6 +38,16 @@ def test_sources_are_labeled_in_prompt():
     prompt = calls[0][-1].content
     assert "[S1] 【提供虛擬資產服務之事業或人員防制洗錢及打擊資恐辦法 第 9 條】" in prompt
     assert "[S2] 【金融機構防制洗錢辦法 第 3 條第 1 項第 1 款至第 4 款】" in prompt
+    assert "<question>\nVASP 何時要確認客戶身分？\n</question>" in prompt
+
+
+def test_two_parse_failures_are_flagged():
+    state, calls, _ = ask([None, None])
+    assert state["answer"] is None
+    assert not state["verified"]
+    assert state["attempts"] == 2
+    assert len(calls) == 2
+    assert state["problems"] == ["輸出格式錯誤，無法解析為指定結構"]
 
 
 def test_failed_verification_retries_with_problems():

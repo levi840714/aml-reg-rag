@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 Category = Literal["lookup", "scenario", "cross_law", "distractor", "refusal"]
 
@@ -14,8 +14,10 @@ class DatasetError(ValueError):
 
 
 class CuratedQuestion(BaseModel):
-    id: str
-    question: str
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
     category: Category
     answerable: bool
     expected_articles: list[str] = []
@@ -27,9 +29,11 @@ class CuratedQuestion(BaseModel):
 
 
 class SyntheticQuestion(BaseModel):
-    id: str
-    question: str
-    expected_articles: list[str]
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    expected_articles: list[str] = Field(min_length=1)
     generator_model: str
     created_at: datetime
 

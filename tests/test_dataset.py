@@ -101,3 +101,27 @@ def test_unknown_articles_are_reported():
         "c-001 的條文 G0380252:99 不在索引中",
         "s-X0000000:1 的條文 X0000000:1 不在索引中",
     ]
+
+
+def test_misspelled_field_is_rejected(tmp_path):
+    path = tmp_path / "curated.jsonl"
+    row = json.loads(curated().model_dump_json()) | {"forbiden_articles": ["G0380252:3"]}
+    path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    with pytest.raises(DatasetError, match="第 1 行"):
+        load_curated(path)
+
+
+def test_synthetic_without_expected_articles_is_rejected(tmp_path):
+    path = tmp_path / "synthetic.jsonl"
+    row = json.loads(synthetic().model_dump_json()) | {"expected_articles": []}
+    path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    with pytest.raises(DatasetError, match="第 1 行"):
+        load_synthetic(path)
+
+
+def test_blank_question_is_rejected(tmp_path):
+    path = tmp_path / "curated.jsonl"
+    row = json.loads(curated().model_dump_json()) | {"question": "  "}
+    path.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    with pytest.raises(DatasetError, match="第 1 行"):
+        load_curated(path)
