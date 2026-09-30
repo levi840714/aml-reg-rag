@@ -66,6 +66,22 @@ def test_labels_are_normalized_before_lookup():
     }
 
 
+def test_labels_with_trailing_text_only_use_the_chunk_number():
+    parsed = RerankOutput(
+        scores=[
+            ChunkScore(label="C1 【洗錢防制法 第 5 條】", relevance=2),
+            ChunkScore(label="C2: 第3條", relevance=3),
+        ]
+    )
+    model, _ = scripted([parsed])
+    result = LlmReranker(model).score(QUESTION, CANDIDATES)
+    assert result.scores == {
+        "G0380252:3:p1:k1-4": 2,
+        "G0380268:3:p1:k1-4": 3,
+        "G0380268:10": 0,
+    }
+
+
 def test_only_unknown_labels_fall_back_and_keep_tokens():
     model, _ = scripted([output(C9=3)])
     result = LlmReranker(model).score(QUESTION, CANDIDATES)

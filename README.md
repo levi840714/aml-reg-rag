@@ -51,7 +51,7 @@
 
 - C 為 `RETRIEVAL_CANDIDATES`（預設 20），k 為 `TOP_K`；rewrite 與 rerank 使用 `LLM_LIGHT_MODEL`
 - rewrite 或 rerank 失敗時退回（只用原問題、依 RRF 名次），不中斷問答，並記錄於 trace 與 eval 結果
-- `RetrievedChunk.score` 為最終排序依據：開啟 rerank 時為 rerank 分數，否則為 RRF 分數；向量相似度記錄在 trace 的 `retrieval.traces`。v1 的 trace 中 `top_score` 為向量相似度，兩者不可直接比較
+- `RetrievedChunk.score` 為最終排序依據：開啟 rerank 時為 rerank 分數，否則為 RRF 分數；向量相似度記錄在 trace 的 `retrieval.traces`。v1 的 trace 與 eval 結果中 `top_score` 為向量相似度，與 v2 不可直接比較
 
 ## 安裝
 

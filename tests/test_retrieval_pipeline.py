@@ -192,8 +192,9 @@ def test_missing_component_is_rejected():
         RetrievalPipeline(FakeIndex([A]), options(hybrid=True, rerank=True))
 
 
-def test_options_label_and_overrides(settings):
-    assert RetrievalOptions.from_settings(settings).label == "hybrid+rerank"
+def test_options_from_settings_and_overrides(settings):
+    defaults = RetrievalOptions.from_settings(settings)
+    assert (defaults.hybrid, defaults.rewrite, defaults.rerank) == (True, False, True)
     overridden = RetrievalOptions.from_settings(settings, hybrid=False, rewrite=False, rerank=False)
-    assert overridden.label == "vector"
+    assert (overridden.hybrid, overridden.rewrite, overridden.rerank) == (False, False, False)
     assert overridden.candidates == settings.retrieval_candidates

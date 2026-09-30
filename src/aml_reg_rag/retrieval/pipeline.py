@@ -37,11 +37,6 @@ class RetrievalOptions:
             candidates=settings.retrieval_candidates,
         )
 
-    @property
-    def label(self) -> str:
-        enabled = [name for name in ("hybrid", "rewrite", "rerank") if getattr(self, name)]
-        return "+".join(enabled) or "vector"
-
 
 @dataclass
 class _Stage:

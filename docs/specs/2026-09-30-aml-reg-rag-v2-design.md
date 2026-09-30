@@ -1,7 +1,7 @@
 # AML 法規問答 v2 設計文件：檢索管線
 
 - 日期：2026-09-30
-- 狀態：設計完成，待實作
+- 狀態：已實作（2026-09-30）
 - 前一版：`2026-09-30-aml-reg-rag-design.md`（v1）
 
 ## 1. 目標
@@ -92,7 +92,7 @@ rewrite 與 rerank 的 prompt 屬於檢索邏輯，放在各自模組內。
 | 設定 | 預設值 | 說明 |
 | ---- | ------ | ---- |
 | `RETRIEVAL_HYBRID` | `true` | 加入 BM25 |
-| `RETRIEVAL_REWRITE` | `true` | 拆解子查詢 |
+| `RETRIEVAL_REWRITE` | `false` | 拆解子查詢（依 ablation 結果改為預設關閉，見 README） |
 | `RETRIEVAL_RERANK` | `true` | LLM rerank |
 | `RETRIEVAL_CANDIDATES` | `20` | 各檢索器取回段數與 rerank 候選數，須 ≥ `TOP_K`，否則啟動時報設定錯誤 |
 

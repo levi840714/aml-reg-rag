@@ -48,7 +48,7 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 
 - Clean code：單一職責、命名清楚、函式短小、避免過度抽象
 - 資料模型使用 `pydantic.BaseModel`，graph state 使用 `TypedDict`
-- 依賴方向單一：`cli` → `evaluation` → `graph` → `retrieval` / `citations` → `llm` → `models` / `config`；`ingest` → `retrieval`
+- 依賴方向單一：`cli` → `evaluation` → `graph` → `retrieval` / `citations`；`retrieval` → `llm` → `models` / `config`；`ingest` → `retrieval`
 - 不留死碼、未使用的 import、註解掉的程式碼
 
 ### 註解規則
@@ -65,7 +65,7 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 - 引用是否屬實由 `citations.verify` 以程式判斷，不交給 LLM；驗證失敗不自動刪改引用
 - Prompt 集中於 `graph/prompts.py` 與 `evaluation/prompts.py`；檢索用的 rewrite 與 rerank prompt 放在 `retrieval/rewrite.py`、`retrieval/rerank.py`
 - 模型透過 `llm.structured_model` 以 `init_chat_model("<provider>:<model>")` 建立，不寫死在 node 中
-- v1 為單次問答，不使用 checkpointer
+- 單次問答，不使用 checkpointer
 
 ## LLM 與 embedding 設定
 

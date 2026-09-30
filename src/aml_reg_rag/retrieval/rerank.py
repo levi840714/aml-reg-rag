@@ -70,7 +70,9 @@ class LlmReranker:
         scores = {chunk.chunk_id: 0 for chunk in candidates}
         matched = False
         for item in parsed.scores:
-            chunk = labeled.get(re.sub(r"[^C0-9]", "", item.label.upper()))
+            # 只取 C 後的第一組數字，避免標籤附帶的條號被併入
+            match = re.search(r"C\s*(\d+)", item.label.upper())
+            chunk = labeled.get(f"C{match.group(1)}") if match else None
             if chunk is not None:
                 scores[chunk.chunk_id] = item.relevance
                 matched = True
