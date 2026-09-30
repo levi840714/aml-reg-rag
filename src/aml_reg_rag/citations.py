@@ -42,7 +42,7 @@ def _verify_citation(number: int, source: str, quote: str, bodies: dict[str, str
     if source not in bodies:
         return [f"論點 {number} 引用的 {source} 不在本次檢索結果中"]
     target = normalize(quote)
-    if len(target) < MIN_QUOTE_CHARS:
+    if sum(ch.isalnum() for ch in target) < MIN_QUOTE_CHARS:
         return [f"論點 {number} 引用 {source} 的原文少於 {MIN_QUOTE_CHARS} 字"]
     if target not in bodies[source]:
         return [f"論點 {number} 引用 {source} 的原文不在該段落中：「{quote}」"]

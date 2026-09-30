@@ -1,3 +1,4 @@
+import io
 import json
 import zipfile
 from datetime import date
@@ -94,6 +95,13 @@ def client(handler) -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
+def zip_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("data.json", "{}")
+    return buffer.getvalue()
+
+
 def write_cache(raw_dir: Path) -> None:
     for name in ("ChLaw", "ChOrder"):
         (raw_dir / f"{name}.json.zip").write_bytes(b"cached")
@@ -104,12 +112,12 @@ def test_fetch_downloads_missing_datasets(tmp_path):
 
     def handler(request: httpx.Request) -> httpx.Response:
         requested.append(request.url.path)
-        return httpx.Response(200, content=b"zip-bytes")
+        return httpx.Response(200, content=zip_bytes())
 
     result = fetch_datasets(tmp_path, client=client(handler))
     assert requested == ["/api/Ch/Law/json", "/api/Ch/Order/json"]
     assert [path.name for path in result.paths] == ["ChLaw.json.zip", "ChOrder.json.zip"]
-    assert (tmp_path / "ChLaw.json.zip").read_bytes() == b"zip-bytes"
+    assert (tmp_path / "ChLaw.json.zip").read_bytes() == zip_bytes()
 
 
 def test_fetch_uses_cache_without_refresh(tmp_path):
@@ -134,3 +142,69 @@ def test_fetch_falls_back_to_cache_on_failure(tmp_path):
 def test_fetch_without_cache_raises(tmp_path):
     with pytest.raises(SourceError, match="沒有快取"):
         fetch_datasets(tmp_path, client=client(lambda request: httpx.Response(503)))
+
+
+def test_fetch_keeps_cache_when_download_is_not_a_zip(tmp_path):
+    write_cache(tmp_path)
+    result = fetch_datasets(
+        tmp_path,
+        refresh=True,
+        client=client(lambda request: httpx.Response(200, content=b"<html>")),
+    )
+    assert len(result.warnings) == 2
+    assert "快取" in result.warnings[0]
+    assert (tmp_path / "ChLaw.json.zip").read_bytes() == b"cached"
+    assert not (tmp_path / "ChLaw.json.part").exists()
+
+
+def test_fetch_non_zip_without_cache_raises(tmp_path):
+    with pytest.raises(SourceError, match="不是 zip"):
+        fetch_datasets(
+            tmp_path, client=client(lambda request: httpx.Response(200, content=b"<html>"))
+        )
+    assert not (tmp_path / "ChLaw.json.zip").exists()
+
+
+def test_read_dataset_rejects_invalid_zip(tmp_path):
+    path = tmp_path / "ChLaw.json.zip"
+    path.write_bytes(b"<html>")
+    with pytest.raises(SourceError, match="--refresh"):
+        read_dataset(path)
+
+
+def test_read_dataset_rejects_empty_archive(tmp_path):
+    path = tmp_path / "ChLaw.json.zip"
+    with zipfile.ZipFile(path, "w"):
+        pass
+    with pytest.raises(SourceError, match="--refresh"):
+        read_dataset(path)
+
+
+def law_with_headings(*headings: str) -> list[dict]:
+    articles = [{"ArticleType": "C", "ArticleContent": text} for text in headings]
+    articles.append({"ArticleType": "A", "ArticleNo": "第 1 條", "ArticleContent": "內容"})
+    law = {
+        "LawLevel": "法律",
+        "LawName": "測試法",
+        "LawURL": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=T0000001",
+        "LawModifiedDate": "20200101",
+        "LawArticles": articles,
+    }
+    return [{"UpdateDate": "2026/9/18 上午 12:00:00", "Laws": [law]}]
+
+
+def chapter_of(*headings: str) -> str | None:
+    corpus = [CorpusLaw(pcode="T0000001", name="測試法")]
+    return parse_laws(law_with_headings(*headings), corpus).articles[0].chapter
+
+
+def test_kuan_heading_is_a_section_under_the_chapter():
+    assert chapter_of("第 一 章 總則", "第 一 款 定義") == "第 一 章 總則 第 一 款 定義"
+
+
+def test_chapter_heading_starting_with_jie_is_not_a_section():
+    assert chapter_of("第 一 章 總則", "第一章節約 x") == "第一章節約 x"
+
+
+def test_unrecognized_heading_leaves_state_unchanged():
+    assert chapter_of("第 一 章 總則", "附則說明") == "第 一 章 總則"

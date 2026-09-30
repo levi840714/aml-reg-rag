@@ -18,7 +18,7 @@ DOWNLOAD_TIMEOUT = 120.0
 
 _PCODE = re.compile(r"pcode=([A-Za-z0-9]+)", re.IGNORECASE)
 _ARTICLE_NO = re.compile(r"第\s*([\d-]+)\s*條")
-_SECTION = re.compile(r"^第\s*\S+\s*節")
+_HEADING = re.compile(r"^第\s*[^\s章節款編]+\s*(編|章|節|款)")
 _UPDATE_DATE = re.compile(r"(\d{4})/(\d{1,2})/(\d{1,2})")
 
 
@@ -72,23 +72,30 @@ def fetch_datasets(
 
 
 def _download_or_keep_cache(client: httpx.Client, url: str, path: Path, name: str) -> str | None:
+    partial = path.with_suffix(".part")
     try:
         response = client.get(url)
         response.raise_for_status()
-    except httpx.HTTPError as exc:
+        partial.write_bytes(response.content)
+        if not zipfile.is_zipfile(partial):
+            raise SourceError("內容不是 zip")
+    except (httpx.HTTPError, SourceError) as exc:
+        partial.unlink(missing_ok=True)
+        reason = "內容不是 zip" if isinstance(exc, SourceError) else type(exc).__name__
         if not path.exists():
-            raise SourceError(f"下載 {name} 失敗（{type(exc).__name__}），且沒有快取") from exc
+            raise SourceError(f"下載 {name} 失敗（{reason}），且沒有快取") from exc
         cached = datetime.fromtimestamp(path.stat().st_mtime).date()
         return f"下載 {name} 失敗，改用 {cached} 的快取"
-    partial = path.with_suffix(".part")
-    partial.write_bytes(response.content)
     partial.replace(path)
     return None
 
 
 def read_dataset(path: Path) -> dict[str, Any]:
-    with zipfile.ZipFile(path) as archive:
-        raw = archive.read(archive.namelist()[0])
+    try:
+        with zipfile.ZipFile(path) as archive:
+            raw = archive.read(archive.namelist()[0])
+    except (zipfile.BadZipFile, IndexError) as exc:
+        raise SourceError(f"{path.name} 不是有效的 zip，請以 --refresh 重新下載") from exc
     data: dict[str, Any] = json.loads(raw.decode("utf-8-sig"))
     return data
 
@@ -128,10 +135,11 @@ def _parse_articles(pcode: str, law: dict[str, Any]) -> tuple[list[LawArticle], 
         content = item.get("ArticleContent", "").strip()
         if item.get("ArticleType") == "C":
             heading = " ".join(content.split())
-            if _SECTION.match(heading):
-                section = heading
-            else:
+            kind = _HEADING.match(heading)
+            if kind and kind.group(1) in "編章":
                 chapter, section = heading, None
+            elif kind:
+                section = heading
             continue
         if item.get("ArticleType") != "A":
             continue

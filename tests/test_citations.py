@@ -44,6 +44,11 @@ def test_short_quote_fails():
     assert verify(result, BODIES) == ["論點 1 引用 S1 的原文少於 8 字"]
 
 
+def test_punctuation_does_not_count_towards_quote_length():
+    result = answer(point("論點", cite("S1", "。" * 8)))
+    assert verify(result, BODIES) == ["論點 1 引用 S1 的原文少於 8 字"]
+
+
 def test_quote_not_in_cited_source_fails():
     result = answer(point("論點", cite("S2", "確認客戶身分時，取得必要資訊")))
     assert verify(result, BODIES) == [
