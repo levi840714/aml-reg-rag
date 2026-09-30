@@ -28,3 +28,18 @@ def test_judge_model_does_not_follow_llm_model(monkeypatch):
 def test_non_positive_llm_timeout_is_rejected():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, llm_timeout=0)
+
+
+def test_retrieval_defaults_enable_all_steps():
+    settings = Settings(_env_file=None)
+    assert (settings.retrieval_hybrid, settings.retrieval_rewrite, settings.retrieval_rerank) == (
+        True,
+        True,
+        True,
+    )
+    assert settings.retrieval_candidates == 20
+
+
+def test_candidates_must_cover_top_k():
+    with pytest.raises(ValidationError, match="RETRIEVAL_CANDIDATES"):
+        Settings(_env_file=None, top_k=10, retrieval_candidates=5)

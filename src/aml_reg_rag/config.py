@@ -1,6 +1,7 @@
 from pathlib import Path
+from typing import Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +21,16 @@ class Settings(BaseSettings):
     top_k: int = Field(default=6, gt=0)
     chunk_max_chars: int = Field(default=600, gt=0)
     llm_timeout: float = Field(default=120, gt=0)
+    retrieval_hybrid: bool = True
+    retrieval_rewrite: bool = True
+    retrieval_rerank: bool = True
+    retrieval_candidates: int = Field(default=20, gt=0)
     data_dir: Path = PROJECT_ROOT / "data"
     eval_dir: Path = PROJECT_ROOT / "eval"
     var_dir: Path = PROJECT_ROOT / "var"
+
+    @model_validator(mode="after")
+    def _candidates_cover_top_k(self) -> Self:
+        if self.retrieval_candidates < self.top_k:
+            raise ValueError("RETRIEVAL_CANDIDATES 須大於或等於 TOP_K")
+        return self
