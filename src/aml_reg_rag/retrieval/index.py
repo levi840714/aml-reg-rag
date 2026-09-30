@@ -17,6 +17,8 @@ from aml_reg_rag.models import Chunk, RetrievedChunk, article_url
 from aml_reg_rag.retrieval.embeddings import EmbeddingConfigError
 
 MAX_IDENTIFIER = 63
+INDEX_SUFFIX = "_hnsw"
+TABLE_BUDGET = MAX_IDENTIFIER - len(INDEX_SUFFIX)
 ID_COLUMN = "chunk_id"
 METADATA_COLUMNS = [
     Column("pcode", "TEXT", nullable=False),
@@ -94,10 +96,10 @@ class PgChunkIndex:
 def table_name(model: str, dim: int) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", model.lower()).strip("_")
     name = f"chunks_{slug}_d{dim}"
-    if len(name) <= MAX_IDENTIFIER:
+    if len(name) <= TABLE_BUDGET:
         return name
     digest = hashlib.sha1(name.encode()).hexdigest()[:8]
-    return f"{name[: MAX_IDENTIFIER - 9]}_{digest}"
+    return f"{name[: TABLE_BUDGET - 9]}_{digest}"
 
 
 def to_retrieved(document: Document, distance: float) -> RetrievedChunk:
@@ -149,12 +151,16 @@ def rebuild_index(
     chunks: list[Chunk],
     source_update_date: date,
 ) -> IndexMeta:
-    ensure_database(db)
-    actual_dim = len(embeddings.embed_query("維度檢查"))
+    if not chunks:
+        raise ValueError("沒有可寫入的段落")
+    # 先完成 embedding，失敗時不會破壞既有索引
+    vectors = embeddings.embed_documents([chunk.page_content for chunk in chunks])
+    actual_dim = len(vectors[0])
     if actual_dim != settings.embedding_dim:
         raise EmbeddingConfigError(
             f"embedding 實際維度為 {actual_dim}，與 EMBEDDING_DIM={settings.embedding_dim} 不符"
         )
+    ensure_database(db)
     table = table_name(settings.embedding_model, settings.embedding_dim)
     with db.sql.begin() as connection:
         connection.execute(
@@ -169,9 +175,13 @@ def rebuild_index(
         overwrite_existing=True,
     )
     store = _open_store(db, table, embeddings)
-    documents = [Document(page_content=c.page_content, metadata=_metadata(c)) for c in chunks]
-    store.add_documents(documents, ids=[chunk.chunk_id for chunk in chunks])
-    store.apply_vector_index(HNSWIndex())
+    store.add_embeddings(
+        texts=[chunk.page_content for chunk in chunks],
+        embeddings=vectors,
+        metadatas=[_metadata(chunk) for chunk in chunks],
+        ids=[chunk.chunk_id for chunk in chunks],
+    )
+    store.apply_vector_index(HNSWIndex(), name=f"{table}{INDEX_SUFFIX}")
     meta = IndexMeta(
         table_name=table,
         embedding_model=settings.embedding_model,
