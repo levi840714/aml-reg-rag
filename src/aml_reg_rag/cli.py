@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -74,6 +75,8 @@ class OpenedIndex:
 @app.callback()
 def _load_env() -> None:
     load_dotenv(PROJECT_ROOT / ".env")
+    # structured output 不使用 AFC，SDK 仍會印出 AFC 使用建議，對 CLI 使用者只是雜訊
+    logging.getLogger("google_genai.models").setLevel(logging.ERROR)
 
 
 @app.command()

@@ -192,3 +192,10 @@ def test_ingest_refuses_remote_database(workspace, monkeypatch):
     assert "目標資料庫：db.example.com:5432/prod" in result.output
     assert "--allow-remote" in result.output
     assert "s3cret" not in result.output
+
+
+def test_cli_silences_google_genai_afc_notice(workspace):
+    import logging
+
+    runner.invoke(cli.app, ["eval", "run", "--retrieval-only"])
+    assert logging.getLogger("google_genai.models").level == logging.ERROR
