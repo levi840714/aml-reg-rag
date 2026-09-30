@@ -15,9 +15,10 @@ from aml_reg_rag.evaluation.runner import (
 )
 from aml_reg_rag.graph.state import initial_state
 from aml_reg_rag.retrieval.index import IndexMeta
-from tests.fakes import FakeIndex, answer, cite, point, refusal, retrieved, scripted
+from tests.fakes import FakeRetriever, answer, cite, point, refusal, retrieved, scripted
 
 FLASH = "google_genai:gemini-3.8-flash"
+LITE = "google_genai:gemini-3.5-flash-lite"
 SETTINGS = {
     "llm_light_model": "google_genai:gemini-3.5-flash-lite",
     "embedding_model": "google_genai:gemini-embedding-001",
@@ -98,7 +99,7 @@ def test_run_retrieval_skips_refusal_and_includes_synthetic():
         created_at=datetime(2026, 9, 30, tzinfo=UTC),
     )
     results = run_retrieval(
-        FakeIndex([BANK, VASP]), [question(), refusal_question()], [synthetic], 6
+        FakeRetriever([BANK, VASP]), [question(), refusal_question()], [synthetic], 6
     )
     assert [(r.question_id, r.dataset, r.category) for r in results] == [
         ("c-001", "curated", "distractor"),
@@ -146,7 +147,7 @@ def test_answer_one_counts_unparsed_answer_as_failed_verification():
     assert result.error is None
     assert result.verified is False
     assert result.input_tokens == 100
-    summary = summarize_generation([result], FLASH, FLASH)
+    summary = summarize_generation([result], FLASH, FLASH, LITE)
     assert (summary.runs, summary.errors, summary.unparsed) == (1, 0, 1)
     assert summary.verified_rate == 0.0
 
@@ -163,14 +164,14 @@ def test_answer_one_error_includes_status_code_not_message():
 
 
 def test_run_retrieval_continues_after_search_failure():
-    class FlakyIndex(FakeIndex):
-        def search(self, query, k):
-            if query == "壞題":
+    class FlakyRetriever(FakeRetriever):
+        def retrieve(self, question, k):
+            if question == "壞題":
                 raise TimeoutError
-            return super().search(query, k)
+            return super().retrieve(question, k)
 
     curated = [question(), question(id="c-004", question="壞題")]
-    results = run_retrieval(FlakyIndex([VASP]), curated, [], 6)
+    results = run_retrieval(FlakyRetriever([VASP]), curated, [], 6)
     assert [r.question_id for r in results] == ["c-001", "c-004"]
     assert results[0].error is None
     assert (results[1].ranked, results[1].top_score, results[1].error) == (
@@ -209,16 +210,17 @@ def test_build_and_write_report(tmp_path):
         k=6,
         repeat=1,
         index=META,
+        light_model=LITE,
         settings=SETTINGS,
         curated=curated,
-        retrieval_results=run_retrieval(FakeIndex([VASP]), curated, [], 6),
+        retrieval_results=run_retrieval(FakeRetriever([VASP]), curated, [], 6),
         answer_results=[answer_one(fake_ask(GOOD), judge_with(True), question(), 6, run=1)],
     )
     assert set(report.retrieval) == {"curated", "curated/distractor", "curated/lookup"}
     assert set(report.generation) == {"all", "distractor"}
     assert (report.reviewed, report.unreviewed) == (1, 1)
     path = write_report(tmp_path, report)
-    assert path.name == "20260930-080000-google_genai_gemini-3.8-flash.json"
+    assert path.name == "20260930-080000-vector-google_genai_gemini-3.8-flash.json"
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["index"]["chunk_count"] == 214
     assert saved["settings"] == SETTINGS
@@ -232,10 +234,29 @@ def test_retrieval_only_report(tmp_path):
         k=6,
         repeat=1,
         index=META,
+        light_model=LITE,
         settings=SETTINGS,
         curated=[question()],
-        retrieval_results=run_retrieval(FakeIndex([VASP]), [question()], [], 6),
+        retrieval_results=run_retrieval(FakeRetriever([VASP]), [question()], [], 6),
         answer_results=[],
     )
     assert report.generation == {}
-    assert write_report(tmp_path, report).name == "20260930-080000-retrieval.json"
+    assert write_report(tmp_path, report).name == "20260930-080000-vector-retrieval.json"
+    assert write_report(tmp_path, report).name == "20260930-080000-vector-retrieval-2.json"
+
+
+def test_run_retrieval_records_pipeline_details():
+    retriever = FakeRetriever([VASP], input_tokens=40, output_tokens=8)
+    result = run_retrieval(retriever, [question()], [], 6)[0]
+    assert (result.queries, result.input_tokens, result.output_tokens) == (1, 40, 8)
+    assert not (result.rewrite_fallback or result.rerank_fallback)
+    assert result.seconds >= 0
+
+
+def test_answer_one_records_retrieval_tokens():
+    def ask(text, k):
+        state = fake_ask(GOOD)(text, k)
+        return state | {"retrieval": FakeRetriever([VASP], input_tokens=40).retrieve(text, k)}
+
+    result = answer_one(ask, judge_with(True), question(), 6, run=1)
+    assert result.retrieval_input_tokens == 40

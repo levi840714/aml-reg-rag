@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from aml_reg_rag import cli
 from aml_reg_rag.retrieval.index import DatabaseError, IndexMeta
-from tests.fakes import FakeIndex, answer, cite, point, retrieved, scripted
+from tests.fakes import FakeRetriever, answer, cite, point, retrieved, scripted
 
 runner = CliRunner()
 CHUNK = retrieved("G0380268:9", "虛擬資產服務商應確認客戶身分。")
@@ -39,15 +39,15 @@ def workspace(monkeypatch, tmp_path):
 
 def open_with(chunks):
     @contextmanager
-    def opened(settings):
-        yield cli.OpenedIndex(db=None, index=FakeIndex(chunks), meta=META)
+    def opened(settings, options):
+        yield cli.OpenedIndex(db=None, retriever=FakeRetriever(chunks), meta=META)
 
     return opened
 
 
 def open_failing(error: Exception):
     @contextmanager
-    def opened(settings):
+    def opened(settings, options):
         raise error
         yield
 
@@ -199,3 +199,49 @@ def test_cli_silences_google_genai_afc_notice(workspace):
 
     runner.invoke(cli.app, ["eval", "run", "--retrieval-only"])
     assert logging.getLogger("google_genai.models").level == logging.ERROR
+
+
+def test_retrieval_flags_override_settings(workspace, monkeypatch):
+    captured = {}
+
+    @contextmanager
+    def opened(settings, options):
+        captured["options"] = options
+        yield cli.OpenedIndex(db=None, retriever=FakeRetriever([CHUNK]), meta=META)
+
+    monkeypatch.setattr(cli, "_open_index", opened)
+    result = runner.invoke(cli.app, ["search", "問題", "--no-hybrid", "--rerank"])
+    assert result.exit_code == 0, result.output
+    options = captured["options"]
+    assert (options.hybrid, options.rewrite, options.rerank) == (False, True, True)
+
+
+def test_eval_compare_prints_side_by_side(workspace, monkeypatch):
+    (workspace / "eval").mkdir()
+    (workspace / "eval" / "curated.jsonl").write_text(CURATED_ROW, encoding="utf-8")
+    monkeypatch.setattr(cli, "_open_index", open_with([CHUNK]))
+    monkeypatch.setattr(cli, "indexed_article_keys", lambda db, table: {"G0380268:9"})
+    for flags in (["--no-hybrid", "--no-rewrite", "--no-rerank"], []):
+        assert runner.invoke(cli.app, ["eval", "run", "--retrieval-only", *flags]).exit_code == 0
+    paths = sorted(str(p) for p in (workspace / "var" / "eval").glob("*.json"))
+    result = runner.invoke(cli.app, ["eval", "compare", *paths])
+    assert result.exit_code == 0, result.output
+    assert "vector" in result.output
+    assert "hybrid+rewrite+rerank" in result.output
+    assert "curated Hit@1" in result.output
+
+
+def test_eval_compare_rejects_invalid_report(workspace):
+    bad = workspace / "bad.json"
+    bad.write_text("{}", encoding="utf-8")
+    result = runner.invoke(cli.app, ["eval", "compare", str(bad)])
+    assert result.exit_code == 1
+    assert "不是有效的 eval 結果檔" in result.output
+
+
+def test_candidates_smaller_than_top_k_is_reported(workspace, monkeypatch):
+    monkeypatch.setenv("TOP_K", "10")
+    monkeypatch.setenv("RETRIEVAL_CANDIDATES", "5")
+    result = runner.invoke(cli.app, ["search", "問題"])
+    assert result.exit_code == 1
+    assert "RETRIEVAL_CANDIDATES 須大於或等於 TOP_K" in result.output

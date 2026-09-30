@@ -6,9 +6,11 @@ from langchain_core.runnables import Runnable, RunnableLambda
 
 from aml_reg_rag.models import (
     Answer,
+    ChunkTrace,
     Citation,
     LawArticle,
     Point,
+    Retrieval,
     RetrievedChunk,
     article_url,
 )
@@ -81,6 +83,32 @@ class FakeIndex:
     def search(self, query: str, k: int) -> list[RetrievedChunk]:
         self.queries.append((query, k))
         return self.chunks[:k]
+
+
+class FakeRetriever:
+    """回傳固定段落的 Retriever，並記錄每次查詢。"""
+
+    def __init__(
+        self, chunks: list[RetrievedChunk], *, input_tokens: int = 0, output_tokens: int = 0
+    ) -> None:
+        self.chunks = chunks
+        self.queries: list[tuple[str, int]] = []
+        self._tokens = (input_tokens, output_tokens)
+
+    def retrieve(self, question: str, k: int) -> Retrieval:
+        self.queries.append((question, k))
+        chunks = self.chunks[:k]
+        traces = [
+            ChunkTrace(chunk_id=c.chunk_id, vector_rank=rank, rrf_score=c.score, final_rank=rank)
+            for rank, c in enumerate(chunks, start=1)
+        ]
+        return Retrieval(
+            chunks=chunks,
+            queries=[question],
+            traces=traces,
+            input_tokens=self._tokens[0],
+            output_tokens=self._tokens[1],
+        )
 
 
 def scripted(outputs: list[Any]) -> tuple[Runnable[Any, Any], list[list[BaseMessage]]]:

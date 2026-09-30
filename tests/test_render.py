@@ -5,7 +5,8 @@ from rich.console import Console
 from aml_reg_rag.evaluation.metrics import AnswerResult
 from aml_reg_rag.evaluation.runner import build_report
 from aml_reg_rag.graph.state import initial_state
-from aml_reg_rag.render import render_answer, render_eval, source_numbers
+from aml_reg_rag.models import ChunkTrace, Retrieval
+from aml_reg_rag.render import render_answer, render_eval, render_retrieval, source_numbers
 from aml_reg_rag.retrieval.index import IndexMeta
 from tests.fakes import answer, cite, point, refusal, retrieved
 
@@ -71,10 +72,13 @@ def test_render_eval_warns_when_pricing_is_missing():
         k=6,
         repeat=1,
         index=META,
+        light_model="google_genai:gemini-3.5-flash-lite",
         settings={},
         curated=[],
         retrieval_results=[],
-        answer_results=[AnswerResult(question_id="c-001", category="lookup", run=1)],
+        answer_results=[
+            AnswerResult(question_id="c-001", category="lookup", run=1, input_tokens=100)
+        ],
     )
     console = Console(record=True, width=200)
     render_eval(console, report)
@@ -100,6 +104,7 @@ def test_render_eval_shows_retrieval_errors_column():
         k=6,
         repeat=1,
         index=META,
+        light_model="google_genai:gemini-3.5-flash-lite",
         settings={},
         curated=[],
         retrieval_results=[],
@@ -119,6 +124,7 @@ def test_render_generation_shows_unparsed_column():
         k=6,
         repeat=1,
         index=META,
+        light_model="google_genai:gemini-3.5-flash-lite",
         settings={},
         curated=[],
         retrieval_results=[],
@@ -128,3 +134,30 @@ def test_render_generation_shows_unparsed_column():
     render_eval(console, report)
     header = next(line for line in console.export_text().splitlines() if "執行" in line)
     assert header.index("錯誤") < header.index("無法解析") < header.index("驗證通過")
+
+
+def test_render_retrieval_shows_queries_stage_ranks_and_fallbacks():
+    chunk = retrieved("G0380268:9", "虛擬資產服務商應確認客戶身分。", score=3.0)
+    retrieval = Retrieval(
+        chunks=[chunk],
+        queries=["原問題", "子查詢"],
+        traces=[
+            ChunkTrace(
+                chunk_id="G0380268:9",
+                vector_rank=4,
+                bm25_rank=None,
+                rrf_score=0.02,
+                rerank_score=3,
+                final_rank=1,
+            )
+        ],
+        rerank_fallback=None,
+        rewrite_fallback="TimeoutError",
+    )
+    console = Console(record=True, width=200)
+    render_retrieval(console, retrieval)
+    text = console.export_text()
+    assert "query rewriting 失敗，已退回（TimeoutError）" in text
+    assert "  - 子查詢" in text
+    row = next(line for line in text.splitlines() if "G0380268:9" in line)
+    assert "│ 4 " in row and "│ — " in row and "│ 3 " in row

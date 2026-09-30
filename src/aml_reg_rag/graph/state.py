@@ -1,12 +1,13 @@
 from typing import TypedDict
 
-from aml_reg_rag.models import Answer, RetrievedChunk
+from aml_reg_rag.models import Answer, Retrieval, RetrievedChunk
 
 
 class AskState(TypedDict):
     question: str
     k: int
     chunks: list[RetrievedChunk]
+    retrieval: Retrieval | None
     answer: Answer | None
     problems: list[str]
     attempts: int
@@ -20,6 +21,7 @@ def initial_state(question: str, k: int) -> AskState:
         "question": question,
         "k": k,
         "chunks": [],
+        "retrieval": None,
         "answer": None,
         "problems": [],
         "attempts": 0,

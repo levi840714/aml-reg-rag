@@ -8,19 +8,20 @@ from aml_reg_rag.graph import prompts
 from aml_reg_rag.graph.state import AskState, labeled_chunks
 from aml_reg_rag.llm import token_usage
 from aml_reg_rag.models import Answer
-from aml_reg_rag.retrieval.index import ChunkIndex
+from aml_reg_rag.retrieval.pipeline import Retriever
 
 # 首次生成加上 1 次重試
 MAX_ATTEMPTS = 2
 
 
 class AskNodes:
-    def __init__(self, index: ChunkIndex, drafter: Runnable[Any, Any]) -> None:
-        self._index = index
+    def __init__(self, retriever: Retriever, drafter: Runnable[Any, Any]) -> None:
+        self._retriever = retriever
         self._drafter = drafter
 
     def retrieve(self, state: AskState) -> dict[str, Any]:
-        return {"chunks": self._index.search(state["question"], state["k"])}
+        retrieval = self._retriever.retrieve(state["question"], state["k"])
+        return {"chunks": retrieval.chunks, "retrieval": retrieval}
 
     def generate(self, state: AskState) -> dict[str, Any]:
         messages = prompts.answer_messages(state["question"], labeled_chunks(state["chunks"]))

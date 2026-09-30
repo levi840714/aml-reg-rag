@@ -27,6 +27,12 @@ class RetrievalResult(BaseModel):
     expected: list[str]
     ranked: list[str]
     top_score: float | None
+    queries: int = 1
+    rewrite_fallback: bool = False
+    rerank_fallback: bool = False
+    input_tokens: int = 0
+    output_tokens: int = 0
+    seconds: float = 0.0
     error: str | None = None
 
 
@@ -38,6 +44,10 @@ class RetrievalSummary(BaseModel):
     hit_at_k: float
     recall_at_k: float
     mrr: float
+    # 以下為 v2 新增，預設值讓 v1 的結果檔仍可讀取
+    fallbacks: int = 0
+    avg_seconds: float | None = None
+    cost_usd: float | None = None
 
 
 class AnswerResult(BaseModel):
@@ -56,6 +66,8 @@ class AnswerResult(BaseModel):
     output_tokens: int = 0
     judge_input_tokens: int = 0
     judge_output_tokens: int = 0
+    retrieval_input_tokens: int = 0
+    retrieval_output_tokens: int = 0
     seconds: float = 0.0
     unparsed: bool = False
     error: str | None = None
@@ -83,6 +95,8 @@ class UnstableQuestion(BaseModel):
 
 
 def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
+    if input_tokens == 0 and output_tokens == 0:
+        return 0.0
     price = PRICING.get(model)
     if price is None:
         return None
@@ -115,7 +129,7 @@ def refusal_outcome(expected_answerable: bool, predicted_answerable: bool) -> Re
     return "false_refusal" if expected_answerable else "false_answer"
 
 
-def summarize_retrieval(results: list[RetrievalResult]) -> RetrievalSummary:
+def summarize_retrieval(results: list[RetrievalResult], light_model: str) -> RetrievalSummary:
     done = [r for r in results if r.error is None]
     count = len(done) or 1  # 全數失敗時各指標為 0.0
     return RetrievalSummary(
@@ -126,11 +140,16 @@ def summarize_retrieval(results: list[RetrievalResult]) -> RetrievalSummary:
         hit_at_k=sum(hit_at(r.ranked, r.expected, len(r.ranked)) for r in done) / count,
         recall_at_k=sum(recall(r.ranked, r.expected) for r in done) / count,
         mrr=sum(reciprocal_rank(r.ranked, r.expected) for r in done) / count,
+        fallbacks=sum(r.rewrite_fallback or r.rerank_fallback for r in done),
+        avg_seconds=_mean(r.seconds for r in done),
+        cost_usd=cost_usd(
+            light_model, sum(r.input_tokens for r in done), sum(r.output_tokens for r in done)
+        ),
     )
 
 
 def summarize_generation(
-    results: list[AnswerResult], model: str, judge_model: str
+    results: list[AnswerResult], model: str, judge_model: str, light_model: str
 ) -> GenerationSummary:
     done = [r for r in results if r.error is None]
     answered = [r for r in done if r.refusal is not None]
@@ -142,6 +161,12 @@ def summarize_generation(
         sum(r.judge_input_tokens for r in done),
         sum(r.judge_output_tokens for r in done),
     )
+    retrieval_cost = cost_usd(
+        light_model,
+        sum(r.retrieval_input_tokens for r in done),
+        sum(r.retrieval_output_tokens for r in done),
+    )
+    costs = (generation_cost, judge_cost, retrieval_cost)
     return GenerationSummary(
         runs=len(done),
         errors=len(results) - len(done),
@@ -157,9 +182,7 @@ def summarize_generation(
         coverage=_mean(r.coverage for r in done if r.coverage is not None),
         judge_failures=sum(r.judge_failed for r in done),
         avg_seconds=_mean(r.seconds for r in done),
-        cost_usd=None
-        if generation_cost is None or judge_cost is None
-        else generation_cost + judge_cost,
+        cost_usd=None if None in costs else sum(cost for cost in costs if cost is not None),
     )
 
 

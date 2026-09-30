@@ -1,5 +1,5 @@
 from aml_reg_rag.graph.build import build_graph, run_ask
-from tests.fakes import FakeIndex, answer, cite, point, refusal, retrieved, scripted
+from tests.fakes import FakeRetriever, answer, cite, point, refusal, retrieved, scripted
 
 QUESTION = "VASP 何時要確認客戶身分？"
 CHUNKS = [
@@ -19,7 +19,7 @@ BAD = answer(point("虛擬資產服務商應確認客戶身分。", cite("S1", "
 
 def ask(outputs, k=2):
     drafter, calls = scripted(outputs)
-    index = FakeIndex(CHUNKS)
+    index = FakeRetriever(CHUNKS)
     state = run_ask(build_graph(index, drafter), QUESTION, k)
     return state, calls, index
 
@@ -78,3 +78,12 @@ def test_refusal_is_verified():
     state, _, _ = ask([refusal()])
     assert state["verified"]
     assert not state["answer"].answerable
+
+
+def test_retrieval_details_are_kept_in_state():
+    drafter, _ = scripted([GOOD])
+    retriever = FakeRetriever(CHUNKS, input_tokens=40, output_tokens=8)
+    state = run_ask(build_graph(retriever, drafter), QUESTION, 2)
+    assert state["retrieval"].queries == [QUESTION]
+    assert state["retrieval"].input_tokens == 40
+    assert (state["input_tokens"], state["output_tokens"]) == (100, 20)

@@ -18,6 +18,7 @@ def ask_record(
         "model": model,
         "retrieved": [{"chunk_id": c.chunk_id, "score": round(c.score, 4)} for c in chunks],
         "top_score": round(chunks[0].score, 4) if chunks else None,
+        "retrieval": _retrieval_record(state),
         "answer": answer.model_dump() if answer else None,
         "verified": state["verified"],
         "problems": state["problems"],
@@ -34,3 +35,11 @@ def append_trace(trace_dir: Path, record: dict[str, Any], now: datetime) -> Path
     with path.open("a", encoding="utf-8") as file:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
     return path
+
+
+def _retrieval_record(state: AskState) -> dict[str, Any] | None:
+    retrieval = state["retrieval"]
+    if retrieval is None:
+        return None
+    # 段落內文已在 retrieved 與法規資料庫中，trace 只留各階段名次與分數
+    return retrieval.model_dump(exclude={"chunks"})

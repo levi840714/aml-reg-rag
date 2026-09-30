@@ -8,11 +8,11 @@ from aml_reg_rag.graph.nodes import AskNodes, route_after_verify
 from aml_reg_rag.graph.state import AskState, initial_state
 from aml_reg_rag.llm import structured_model
 from aml_reg_rag.models import Answer
-from aml_reg_rag.retrieval.index import ChunkIndex
+from aml_reg_rag.retrieval.pipeline import Retriever
 
 
-def build_graph(index: ChunkIndex, drafter: Runnable[Any, Any]) -> CompiledStateGraph:
-    nodes = AskNodes(index, drafter)
+def build_graph(retriever: Retriever, drafter: Runnable[Any, Any]) -> CompiledStateGraph:
+    nodes = AskNodes(retriever, drafter)
     graph = StateGraph(AskState)
     graph.add_node("retrieve", nodes.retrieve)
     graph.add_node("generate", nodes.generate)

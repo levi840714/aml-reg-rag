@@ -2,10 +2,11 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from aml_reg_rag.evaluation.compare import Comparison
 from aml_reg_rag.evaluation.runner import EvalReport
 from aml_reg_rag.graph.state import AskState, labeled_chunks
 from aml_reg_rag.ingest.pipeline import IngestReport
-from aml_reg_rag.models import Answer, RetrievedChunk
+from aml_reg_rag.models import Answer, Retrieval, RetrievedChunk
 
 PREVIEW_CHARS = 40
 
@@ -25,13 +26,42 @@ def render_ingest(console: Console, report: IngestReport) -> None:
     console.print(f"資料來源更新日期：{report.meta.source_update_date}")
 
 
-def render_search(console: Console, chunks: list[RetrievedChunk]) -> None:
-    table = Table("排名", "相似度", "chunk_id", "條文", "內文開頭")
-    for rank, chunk in enumerate(chunks, start=1):
+def render_retrieval(console: Console, retrieval: Retrieval) -> None:
+    fallbacks = [
+        f"{name}失敗，已退回（{reason}）"
+        for name, reason in (
+            ("query rewriting ", retrieval.rewrite_fallback),
+            ("rerank ", retrieval.rerank_fallback),
+        )
+        if reason
+    ]
+    render_warnings(console, fallbacks)
+    if len(retrieval.queries) > 1:
+        console.print("查詢：")
+        for query in retrieval.queries:
+            console.print(f"  - {escape(query)}")
+    traces = {trace.chunk_id: trace for trace in retrieval.traces}
+    table = Table("排名", "分數", "向量", "BM25", "rerank", "chunk_id", "條文", "內文開頭")
+    for rank, chunk in enumerate(retrieval.chunks, start=1):
+        trace = traces.get(chunk.chunk_id)
         preview = chunk.body.replace("\n", " ")[:PREVIEW_CHARS]
         table.add_row(
-            str(rank), f"{chunk.score:.3f}", chunk.chunk_id, escape(chunk.title), escape(preview)
+            str(rank),
+            f"{chunk.score:.3f}",
+            _optional(trace.vector_rank if trace else None),
+            _optional(trace.bm25_rank if trace else None),
+            _optional(trace.rerank_score if trace else None),
+            chunk.chunk_id,
+            escape(chunk.title),
+            escape(preview),
         )
+    console.print(table)
+
+
+def render_compare(console: Console, comparison: Comparison) -> None:
+    table = Table("指標", *(escape(column) for column in comparison.columns))
+    for name, values in comparison.rows:
+        table.add_row(escape(name), *values)
     console.print(table)
 
 
@@ -45,8 +75,8 @@ def source_numbers(answer: Answer) -> dict[str, int]:
 
 
 def render_answer(console: Console, state: AskState, *, show_context: bool = False) -> None:
-    if show_context:
-        render_search(console, state["chunks"])
+    if show_context and state["retrieval"] is not None:
+        render_retrieval(console, state["retrieval"])
     if not state["verified"]:
         console.print("[bold red]引用驗證失敗：[/]")
         for problem in state["problems"]:
@@ -78,17 +108,32 @@ def render_eval(console: Console, report: EvalReport) -> None:
         f"k={report.k}　repeat={report.repeat}　索引：{escape(report.index.table_name)}"
     )
     console.print(f"人工題：已審核 {report.reviewed} 題、未審核 {report.unreviewed} 題")
-    retrieval = Table("檢索", "題數", "錯誤", "Hit@1", "Hit@3", "Hit@k", "Recall@k", "MRR")
+    retrieval = Table(
+        "檢索",
+        "題數",
+        "錯誤",
+        "退回",
+        "Hit@1",
+        "Hit@3",
+        "Hit@k",
+        "Recall@k",
+        "MRR",
+        "平均秒數",
+        "成本",
+    )
     for name, summary in report.retrieval.items():
         retrieval.add_row(
             name,
             str(summary.questions),
             str(summary.errors),
+            str(summary.fallbacks),
             _pct(summary.hit_at_1),
             _pct(summary.hit_at_3),
             _pct(summary.hit_at_k),
             _pct(summary.recall_at_k),
             f"{summary.mrr:.3f}",
+            "—" if summary.avg_seconds is None else f"{summary.avg_seconds:.1f}",
+            "—" if summary.cost_usd is None else f"${summary.cost_usd:.4f}",
         )
     console.print(retrieval)
     if report.generation:
@@ -149,3 +194,7 @@ def _render_refusal(console: Console, answer: Answer, chunks: list[RetrievedChun
 
 def _pct(value: float | None) -> str:
     return "—" if value is None else f"{value:.0%}"
+
+
+def _optional(value: int | None) -> str:
+    return "—" if value is None else str(value)

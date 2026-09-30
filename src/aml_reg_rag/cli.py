@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
@@ -13,6 +14,7 @@ from rich.markup import escape
 
 from aml_reg_rag import render
 from aml_reg_rag.config import PROJECT_ROOT, Settings
+from aml_reg_rag.evaluation.compare import ReportError, compare_reports, load_report
 from aml_reg_rag.evaluation.dataset import (
     DatasetError,
     load_curated,
@@ -34,7 +36,6 @@ from aml_reg_rag.ingest.source import SourceError
 from aml_reg_rag.llm import describe_error
 from aml_reg_rag.retrieval.embeddings import EmbeddingConfigError, make_embeddings
 from aml_reg_rag.retrieval.index import (
-    ChunkIndex,
     Database,
     DatabaseError,
     IndexMeta,
@@ -44,6 +45,7 @@ from aml_reg_rag.retrieval.index import (
     is_local,
     open_index,
 )
+from aml_reg_rag.retrieval.pipeline import RetrievalOptions, Retriever, make_pipeline
 from aml_reg_rag.trace import append_trace, ask_record
 
 KNOWN_ERRORS = (
@@ -51,6 +53,7 @@ KNOWN_ERRORS = (
     DatasetError,
     EmbeddingConfigError,
     IndexNotReadyError,
+    ReportError,
     SourceError,
 )
 
@@ -64,11 +67,16 @@ eval_app = typer.Typer(
 app.add_typer(eval_app, name="eval")
 console = Console()
 
+HYBRID = typer.Option(None, "--hybrid/--no-hybrid", help="加入 BM25（覆寫 RETRIEVAL_HYBRID）")
+REWRITE = typer.Option(None, "--rewrite/--no-rewrite", help="拆解子查詢（覆寫 RETRIEVAL_REWRITE）")
+RERANK = typer.Option(None, "--rerank/--no-rerank", help="LLM rerank（覆寫 RETRIEVAL_RERANK）")
+REPORT_PATHS = typer.Argument(..., exists=True, dir_okay=False, help="eval 結果檔")
+
 
 @dataclass(frozen=True)
 class OpenedIndex:
     db: Database
-    index: ChunkIndex
+    retriever: Retriever
     meta: IndexMeta
 
 
@@ -106,13 +114,22 @@ def ingest(
 
 
 @app.command()
-def search(question: str, k: int | None = typer.Option(None, "--k", min=1)) -> None:
-    """只檢索，不呼叫 LLM。"""
+def search(
+    question: str,
+    k: int | None = typer.Option(None, "--k", min=1),
+    hybrid: bool | None = HYBRID,
+    rewrite: bool | None = REWRITE,
+    rerank: bool | None = RERANK,
+) -> None:
+    """只檢索；開啟 rewrite 或 rerank 時會呼叫輕量模型。"""
     with _handle_errors():
         settings = Settings()
-        with _open_index(settings) as opened:
-            chunks = opened.index.search(question, k or settings.top_k)
-        render.render_search(console, chunks)
+        options = RetrievalOptions.from_settings(
+            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank
+        )
+        with _open_index(settings, options) as opened:
+            retrieval = opened.retriever.retrieve(question, k or settings.top_k)
+        render.render_retrieval(console, retrieval)
 
 
 @app.command()
@@ -120,13 +137,19 @@ def ask(
     question: str,
     k: int | None = typer.Option(None, "--k", min=1),
     show_context: bool = typer.Option(False, "--show-context", help="一併顯示檢索到的段落"),
+    hybrid: bool | None = HYBRID,
+    rewrite: bool | None = REWRITE,
+    rerank: bool | None = RERANK,
 ) -> None:
     """依法規條文回答問題。"""
     with _handle_errors():
         settings = Settings()
-        with _open_index(settings) as opened:
+        options = RetrievalOptions.from_settings(
+            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank
+        )
+        with _open_index(settings, options) as opened:
             drafter = make_drafter(settings.llm_model, settings.llm_timeout)
-            graph = build_graph(opened.index, drafter)
+            graph = build_graph(opened.retriever, drafter)
             started = time.perf_counter()
             state = run_ask(graph, question, k or settings.top_k)
             seconds = time.perf_counter() - started
@@ -172,25 +195,32 @@ def eval_run(
     model: str | None = typer.Option(None, "--model", help="覆寫生成模型 <provider:model>"),
     k: int | None = typer.Option(None, "--k", min=1),
     repeat: int = typer.Option(1, "--repeat", min=1, help="生成階段每題執行次數"),
+    hybrid: bool | None = HYBRID,
+    rewrite: bool | None = REWRITE,
+    rerank: bool | None = RERANK,
 ) -> None:
     """執行 eval 並寫入 var/eval/。"""
     with _handle_errors():
         settings = Settings()
+        options = RetrievalOptions.from_settings(
+            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank
+        )
         top_k = k or settings.top_k
         model_name = None if retrieval_only else model or settings.llm_model
         curated = load_curated(settings.eval_dir / "curated.jsonl")
         synthetic = load_synthetic(settings.eval_dir / "synthetic.jsonl")
         if not synthetic:
             render.render_warnings(console, ["尚未產生自動生成題，可執行 reg eval generate"])
-        with _open_index(settings) as opened:
+        with _open_index(settings, options) as opened:
             known = indexed_article_keys(opened.db, opened.meta.table_name)
             problems = validate_datasets(curated, synthetic, known)
             if problems:
                 raise DatasetError("題庫驗證失敗：\n" + "\n".join(problems))
-            retrieval_results = run_retrieval(opened.index, curated, synthetic, top_k)
+            retrieval_results = run_retrieval(opened.retriever, curated, synthetic, top_k)
             answer_results = []
             if model_name:
-                graph = build_graph(opened.index, make_drafter(model_name, settings.llm_timeout))
+                drafter = make_drafter(model_name, settings.llm_timeout)
+                graph = build_graph(opened.retriever, drafter)
                 answer_results = run_generation(
                     lambda question, size: run_ask(graph, question, size),
                     make_judge(settings.eval_judge_model, settings.llm_timeout),
@@ -206,7 +236,8 @@ def eval_run(
             k=top_k,
             repeat=repeat,
             index=opened.meta,
-            settings=_report_settings(settings),
+            settings=_report_settings(settings, options),
+            light_model=settings.llm_light_model,
             curated=curated,
             retrieval_results=retrieval_results,
             answer_results=answer_results,
@@ -216,23 +247,37 @@ def eval_run(
         console.print(f"結果已寫入 {escape(str(path))}")
 
 
-def _report_settings(settings: Settings) -> dict[str, str | int]:
+@eval_app.command("compare")
+def eval_compare(
+    paths: list[Path] = REPORT_PATHS,
+) -> None:
+    """並排比較多個 eval 結果。"""
+    with _handle_errors():
+        render.render_compare(console, compare_reports([load_report(path) for path in paths]))
+
+
+def _report_settings(settings: Settings, options: RetrievalOptions) -> dict[str, str | int | bool]:
     return {
         "llm_light_model": settings.llm_light_model,
         "embedding_model": settings.embedding_model,
         "embedding_dim": settings.embedding_dim,
         "chunk_max_chars": settings.chunk_max_chars,
         "top_k": settings.top_k,
+        "retrieval_hybrid": options.hybrid,
+        "retrieval_rewrite": options.rewrite,
+        "retrieval_rerank": options.rerank,
+        "retrieval_candidates": options.candidates,
     }
 
 
 @contextmanager
-def _open_index(settings: Settings) -> Iterator[OpenedIndex]:
+def _open_index(settings: Settings, options: RetrievalOptions) -> Iterator[OpenedIndex]:
     db = Database.connect(settings.database_url)
     try:
         index, meta, warnings = open_index(db, settings, make_embeddings(settings))
         render.render_warnings(console, warnings)
-        yield OpenedIndex(db, index, meta)
+        retriever = make_pipeline(db, meta.table_name, index, settings, options)
+        yield OpenedIndex(db, retriever, meta)
     finally:
         db.close()
 
@@ -248,7 +293,10 @@ def _handle_errors() -> Iterator[None]:
         raise
     except ValidationError as exc:
         # 只列欄位名稱，輸入值可能是誤填的 key
-        fields = ", ".join(".".join(str(part) for part in error["loc"]) for error in exc.errors())
+        # 跨欄位檢查沒有 loc，改用錯誤說明（由程式產生，不含輸入值）
+        fields = ", ".join(
+            ".".join(str(part) for part in error["loc"]) or error["msg"] for error in exc.errors()
+        )
         console.print(f"[red]設定值不合法：{escape(fields)}[/]")
         raise typer.Exit(1) from exc
     except Exception as exc:

@@ -16,6 +16,7 @@ from aml_reg_rag.evaluation.metrics import (
 from tests.fakes import retrieved
 
 FLASH = "google_genai:gemini-3.8-flash"
+LITE = "google_genai:gemini-3.5-flash-lite"
 
 
 def test_article_ranking_dedupes_chunks_of_same_article():
@@ -56,7 +57,8 @@ def retrieval(qid, expected, ranked) -> RetrievalResult:
 
 def test_summarize_retrieval():
     summary = summarize_retrieval(
-        [retrieval("q1", ["A:1"], ["A:1", "B:2"]), retrieval("q2", ["C:3"], ["A:1", "C:3"])]
+        [retrieval("q1", ["A:1"], ["A:1", "B:2"]), retrieval("q2", ["C:3"], ["A:1", "C:3"])],
+        LITE,
     )
     assert summary.questions == 2
     assert (summary.hit_at_1, summary.hit_at_3, summary.hit_at_k) == (0.5, 1.0, 1.0)
@@ -65,14 +67,14 @@ def test_summarize_retrieval():
 
 def test_summarize_retrieval_excludes_failed_questions():
     failed = retrieval("q2", ["C:3"], []).model_copy(update={"error": "TimeoutError"})
-    summary = summarize_retrieval([retrieval("q1", ["A:1"], ["A:1"]), failed])
+    summary = summarize_retrieval([retrieval("q1", ["A:1"], ["A:1"]), failed], LITE)
     assert (summary.questions, summary.errors) == (1, 1)
     assert (summary.hit_at_1, summary.recall_at_k, summary.mrr) == (1.0, 1.0, 1.0)
 
 
 def test_summarize_retrieval_all_failed():
     failed = retrieval("q1", ["A:1"], []).model_copy(update={"error": "TimeoutError"})
-    summary = summarize_retrieval([failed])
+    summary = summarize_retrieval([failed], LITE)
     assert (summary.questions, summary.errors) == (0, 1)
     assert (summary.hit_at_1, summary.hit_at_3, summary.hit_at_k) == (0.0, 0.0, 0.0)
     assert (summary.recall_at_k, summary.mrr) == (0.0, 0.0)
@@ -115,7 +117,7 @@ def generation_results() -> list[AnswerResult]:
 
 
 def test_summarize_generation():
-    summary = summarize_generation(generation_results(), FLASH, FLASH)
+    summary = summarize_generation(generation_results(), FLASH, FLASH, LITE)
     assert (summary.runs, summary.errors) == (2, 1)
     assert (summary.verified_rate, summary.refusal_accuracy) == (1.0, 0.5)
     assert (summary.false_refusals, summary.false_answers) == (0, 1)
@@ -125,7 +127,7 @@ def test_summarize_generation():
 
 
 def test_unknown_model_cost_is_none():
-    assert summarize_generation(generation_results(), "unknown:model", FLASH).cost_usd is None
+    assert summarize_generation(generation_results(), "unknown:model", FLASH, LITE).cost_usd is None
 
 
 def outcome(qid, run, refusal) -> AnswerResult:
@@ -152,7 +154,7 @@ def test_unparsed_runs_count_toward_rates_and_cost():
     unparsed = AnswerResult(
         question_id="q4", category="lookup", run=1, unparsed=True, input_tokens=1000, seconds=6.0
     )
-    summary = summarize_generation([*generation_results(), unparsed], FLASH, FLASH)
+    summary = summarize_generation([*generation_results(), unparsed], FLASH, FLASH, LITE)
     assert (summary.runs, summary.errors, summary.unparsed) == (3, 1, 1)
     assert summary.verified_rate == pytest.approx(2 / 3)
     assert summary.avg_seconds == 4.0
@@ -164,3 +166,30 @@ def test_consistency_includes_unparsed_runs():
     agreement, unstable = consistency([outcome("q1", 1, "correct"), unparsed])
     assert agreement == 0.0
     assert unstable[0].outcomes == ["correct/True", "None/False"]
+
+
+def test_summarize_retrieval_reports_fallbacks_time_and_cost():
+    results = [
+        retrieval("q1", ["A:1"], ["A:1"]).model_copy(
+            update={"rerank_fallback": True, "input_tokens": 1_000_000, "seconds": 1.0}
+        ),
+        retrieval("q2", ["A:1"], ["A:1"]).model_copy(update={"seconds": 3.0}),
+    ]
+    summary = summarize_retrieval(results, LITE)
+    assert (summary.fallbacks, summary.avg_seconds) == (1, 2.0)
+    assert summary.cost_usd == pytest.approx(0.30)
+
+
+def test_zero_tokens_cost_nothing_even_for_unknown_models():
+    assert cost_usd("unknown:model", 0, 0) == 0.0
+
+
+def test_generation_cost_includes_retrieval_tokens():
+    result = AnswerResult(
+        question_id="q1",
+        category="lookup",
+        run=1,
+        retrieval_input_tokens=1_000_000,
+        retrieval_output_tokens=0,
+    )
+    assert summarize_generation([result], FLASH, FLASH, LITE).cost_usd == pytest.approx(0.30)
