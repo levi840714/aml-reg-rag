@@ -58,6 +58,29 @@ class RetrievedChunk(BaseModel):
         return f"{self.law_name} {position}{self.locator}"
 
 
+class ChunkTrace(BaseModel):
+    """候選段落在各檢索階段的名次與分數；多個查詢時取最佳名次。"""
+
+    chunk_id: str
+    vector_rank: int | None = None
+    vector_score: float | None = None
+    bm25_rank: int | None = None
+    bm25_score: float | None = None
+    rrf_score: float
+    rerank_score: int | None = None
+    final_rank: int | None = None
+
+
+class Retrieval(BaseModel):
+    chunks: list[RetrievedChunk]
+    queries: list[str]
+    traces: list[ChunkTrace]
+    rewrite_fallback: str | None = None
+    rerank_fallback: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
 class Citation(BaseModel):
     source: str = Field(description="引用段落的標籤，例如 S2")
     quote: str = Field(description="從該段落逐字複製的原文，至少 8 個字")
