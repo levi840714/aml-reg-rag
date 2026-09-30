@@ -11,6 +11,7 @@ from aml_reg_rag.ingest.chunker import chunk_article
 from aml_reg_rag.retrieval.index import (
     Database,
     indexed_article_keys,
+    is_local,
     open_index,
     rebuild_index,
 )
@@ -22,6 +23,8 @@ pytestmark = pytest.mark.integration
 def test_rebuild_and_search_with_real_postgres():
     load_dotenv(PROJECT_ROOT / ".env")
     settings = Settings(embedding_model="test:deterministic", embedding_dim=8)
+    if not is_local(settings.database_url):
+        pytest.skip("DATABASE_URL 不是本機資料庫；此測試會刪表重建，只在本機執行")
     embeddings = DeterministicFakeEmbedding(size=8)
     chunks = [
         *chunk_article(article("虛擬資產服務商應確認客戶身分。"), 600),

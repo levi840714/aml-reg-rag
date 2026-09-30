@@ -10,6 +10,7 @@ from langchain_postgres import Column, PGEngine, PGVectorStore
 from langchain_postgres.v2.indexes import HNSWIndex
 from pydantic import BaseModel
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from aml_reg_rag.config import Settings
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS index_meta (
     ingested_at TIMESTAMPTZ NOT NULL
 )
 """
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 INSERT_META = """
 INSERT INTO index_meta VALUES (
     :table_name, :embedding_model, :embedding_dim, :chunk_max_chars,
@@ -91,6 +93,17 @@ class PgChunkIndex:
     def search(self, query: str, k: int) -> list[RetrievedChunk]:
         results = self._store.similarity_search_with_score(query, k=k)
         return [to_retrieved(document, distance) for document, distance in results]
+
+
+def describe_target(url: str) -> str:
+    """回傳 host:port/database，不含帳號密碼。"""
+    parsed = make_url(url)
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.host}{port}/{parsed.database}"
+
+
+def is_local(url: str) -> bool:
+    return make_url(url).host in LOCAL_HOSTS
 
 
 def table_name(model: str, dim: int) -> str:

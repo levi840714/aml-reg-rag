@@ -36,7 +36,9 @@ from aml_reg_rag.retrieval.index import (
     DatabaseError,
     IndexMeta,
     IndexNotReadyError,
+    describe_target,
     indexed_article_keys,
+    is_local,
     open_index,
 )
 from aml_reg_rag.trace import append_trace, ask_record
@@ -75,10 +77,21 @@ def _load_env() -> None:
 @app.command()
 def ingest(
     refresh: bool = typer.Option(False, "--refresh", help="重新下載全國法規資料庫資料"),
+    allow_remote: bool = typer.Option(
+        False, "--allow-remote", help="允許對非本機資料庫刪表重建索引"
+    ),
 ) -> None:
     """下載法規、切段並重建索引。"""
     with _handle_errors():
         settings = Settings()
+        target = describe_target(settings.database_url)
+        console.print(f"目標資料庫：{escape(target)}")
+        if not is_local(settings.database_url) and not allow_remote:
+            console.print(
+                f"[red]DATABASE_URL 指向非本機資料庫（{escape(target)}），ingest 會刪表重建；"
+                "確定要執行請加 --allow-remote[/]"
+            )
+            raise typer.Exit(1)
         db = Database.connect(settings.database_url)
         try:
             report = run_ingest(settings, db, make_embeddings(settings), refresh=refresh)

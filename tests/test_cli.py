@@ -164,3 +164,16 @@ def test_eval_run_rejects_unknown_articles(workspace, monkeypatch):
     result = runner.invoke(cli.app, ["eval", "run", "--retrieval-only"])
     assert result.exit_code == 1
     assert "G0380268:9 不在索引中" in result.output
+
+
+def test_ingest_refuses_remote_database(workspace, monkeypatch):
+    def forbidden(url):
+        raise AssertionError("不應連線遠端資料庫")
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://reg:s3cret@db.example.com:5432/prod")
+    monkeypatch.setattr(cli.Database, "connect", forbidden)
+    result = runner.invoke(cli.app, ["ingest"])
+    assert result.exit_code == 1
+    assert "目標資料庫：db.example.com:5432/prod" in result.output
+    assert "--allow-remote" in result.output
+    assert "s3cret" not in result.output

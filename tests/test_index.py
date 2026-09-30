@@ -10,6 +10,8 @@ from aml_reg_rag.ingest.chunker import chunk_article
 from aml_reg_rag.retrieval.embeddings import EmbeddingConfigError
 from aml_reg_rag.retrieval.index import (
     MAX_IDENTIFIER,
+    describe_target,
+    is_local,
     rebuild_index,
     table_name,
     to_retrieved,
@@ -115,3 +117,22 @@ def test_to_retrieved_strips_header_and_converts_distance():
     assert chunk.article_key == "G0380252:3"
     assert chunk.body == "第一行\n第二行"
     assert chunk.score == 0.75
+
+
+def test_describe_target_hides_credentials():
+    url = "postgresql+psycopg://reg:s3cret@db.example.com:5432/aml_reg"
+    assert describe_target(url) == "db.example.com:5432/aml_reg"
+    assert "s3cret" not in describe_target(url)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("postgresql+psycopg://reg:reg@localhost:55432/aml_reg", True),
+        ("postgresql+psycopg://reg:reg@127.0.0.1:5432/aml_reg", True),
+        ("postgresql+psycopg://reg:reg@[::1]:5432/aml_reg", True),
+        ("postgresql+psycopg://reg:reg@db.example.com:5432/aml_reg", False),
+    ],
+)
+def test_is_local(url, expected):
+    assert is_local(url) is expected
