@@ -9,9 +9,9 @@
 | 項目 | 說明 |
 | ---- | ---- |
 | 語料 | 6 部現行法規中文版（全國法規資料庫 Open API），清單見 `data/corpus.toml` |
-| 檢索 | 向量檢索（Gemini embedding + pgvector cosine） |
+| 檢索 | 向量檢索（Gemini embedding + pgvector cosine）、BM25、query rewriting、LLM rerank，各自可開關 |
 | 生成 | 結構化輸出，每個論點至少一個引用與逐字引述，程式驗證 |
-| 不支援 | BM25 / hybrid、reranker、法規簡稱與舊名、英文版、自律規範、歷史版本、多輪對話 |
+| 不支援 | 法規簡稱與舊名、英文版、自律規範、歷史版本、多輪對話 |
 
 語料：洗錢防制法、資恐防制法、提供虛擬資產服務之事業或人員防制洗錢及打擊資恐辦法、提供虛擬資產服務之事業或人員洗錢防制登記辦法、金融機構及提供虛擬資產服務之事業或人員防制詐欺犯罪危害應遵循事項辦法、金融機構防制洗錢辦法（與 VASP 辦法內容相近，作為檢索干擾項）。
 
@@ -29,9 +29,29 @@
 | 階段 | 負責 | 內容 |
 | ---- | ---- | ---- |
 | chunk | 程式 | 依項、款、目切段（上限 `CHUNK_MAX_CHARS`），切到款或目時帶上上層引言；每段標頭含法規名稱與條號，與內文一起 embedding |
-| retrieve | 程式 | 取 `TOP_K` 段，依序標為 `S1`…`Sk` |
+| retrieve | 程式與輕量模型 | 經檢索管線（見下節）取 `TOP_K` 段，依序標為 `S1`…`Sk` |
 | generate | LLM | 只依段落作答，輸出論點、引用標籤與逐字引述；不足以回答時拒答並說明缺少什麼 |
 | verify | 程式 | 引用來源須在本次檢索結果中，引述經 NFKC 正規化、移除空白後須為段落內文的子字串且至少 8 字 |
+
+## 檢索管線
+
+```
+問題
+ └─ rewrite → [原問題, 子查詢 ≤ 2]
+     └─ 每個查詢：向量 top C ＋ BM25 top C → RRF
+         └─ 各查詢結果 → RRF → 前 C 段候選
+             └─ rerank → 輕量模型逐段評分 0～3 → 前 k 段
+```
+
+| 步驟 | 設定 | 內容 |
+| ---- | ---- | ---- |
+| hybrid | `RETRIEVAL_HYBRID` | BM25 以中文字元 bigram 斷詞，與向量檢索的名次以 RRF（`1 / (60 + 名次)`）合併 |
+| rewrite | `RETRIEVAL_REWRITE` | 輕量模型把涉及多個議題的問題拆成子查詢；原問題永遠保留，召回不低於只用原問題 |
+| rerank | `RETRIEVAL_RERANK` | 輕量模型依相關程度與適用對象評分，同分時依 RRF 名次 |
+
+- C 為 `RETRIEVAL_CANDIDATES`（預設 20），k 為 `TOP_K`；rewrite 與 rerank 使用 `LLM_LIGHT_MODEL`
+- rewrite 或 rerank 失敗時退回（只用原問題、依 RRF 名次），不中斷問答，並記錄於 trace 與 eval 結果
+- `RetrievedChunk.score` 為最終排序依據：開啟 rerank 時為 rerank 分數，否則為 RRF 分數；向量相似度記錄在 trace 的 `retrieval.traces`。v1 的 trace 中 `top_score` 為向量相似度，兩者不可直接比較
 
 ## 安裝
 
@@ -48,13 +68,15 @@ uv run reg ingest
 ## 使用
 
 ```bash
-uv run reg search "臨時性交易多少金額要確認客戶身分"     # 只檢索，不呼叫 LLM
+uv run reg search "臨時性交易多少金額要確認客戶身分"     # 只檢索；開啟 rewrite 或 rerank 時會呼叫輕量模型
+uv run reg search "..." --no-rerank --no-rewrite        # 關閉部分檢索步驟（search、ask、eval run 皆可用）
 uv run reg ask "虛擬資產服務商的交易紀錄要保存多久？"     # 問答
 uv run reg ask "..." --show-context                    # 一併顯示檢索到的段落
 uv run reg eval generate                               # 產生自動生成題（已存在時需 --overwrite）
 uv run reg eval run --retrieval-only                   # 只評估檢索
 uv run reg eval run                                    # 檢索 + 生成
 uv run reg eval run --model google_genai:gemini-3.5-flash-lite --repeat 3
+uv run reg eval compare var/eval/<結果檔>...            # 並排比較多次 eval
 ```
 
 `reg ask` 在引用驗證失敗時以 exit code 1 結束；條文不足而拒答屬正常結果，exit code 為 0。
@@ -64,8 +86,8 @@ uv run reg eval run --model google_genai:gemini-3.5-flash-lite --repeat 3
 | 路徑 | 內容 |
 | ---- | ---- |
 | `var/raw/` | 全國法規資料庫下載快取 |
-| `var/traces/<日期>.jsonl` | 每次 `ask` 的問題、檢索結果與分數、回答、驗證結果、token、耗時 |
-| `var/eval/<時間>-<模型>.json` | eval 設定、索引資訊、各指標與每題明細 |
+| `var/traces/<日期>.jsonl` | 每次 `ask` 的問題、檢索結果與分數、檢索細節（查詢、各階段名次、退回）、回答、驗證結果、token、耗時 |
+| `var/eval/<時間>-<檢索設定>-<模型>.json` | eval 設定、索引資訊、各指標與每題明細；同一秒產生多份時加序號 |
 
 ## Eval
 
@@ -113,3 +135,15 @@ v1 第一次 eval（2026-09-30，`reg eval run --repeat 3`）：`LLM_MODEL` 與 
 - c-013（未通報制裁資產的罰則）檢索未取得資恐防制法第 12 條與洗錢防制法第 5 條，3 次皆拒答；跨法規題需要多步檢索或 query rewriting
 - 以情境描述的問題較容易被金融機構版辦法干擾：c-007、c-010 的第 1 名為金融機構防制洗錢辦法，c-010 三次都引用了禁止條文 `G0380252:15`；純條文查詢的干擾題則全部正確
 - 自動生成題 175 題中有 6 題未在 top-6 找到出處條文
+
+## Ablation 結果
+
+尚未執行。依下列順序執行後，將 `reg eval compare` 的表格與觀察貼於此處，並註明日期與模型：
+
+```bash
+uv run reg eval run --retrieval-only --no-hybrid --no-rewrite --no-rerank
+uv run reg eval run --retrieval-only --no-rewrite --no-rerank
+uv run reg eval run --retrieval-only --no-rewrite
+uv run reg eval run --retrieval-only
+uv run reg eval compare var/eval/<以上四個結果檔>
+```

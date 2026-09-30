@@ -20,7 +20,7 @@ aml_reg_rag/
 │   ├── citations.py       # 引用驗證
 │   ├── trace.py           # 問答 trace
 │   ├── ingest/            # 下載與解析、依項款目切段、匯入流程
-│   ├── retrieval/         # embedding、PGVectorStore 索引與 index_meta
+│   ├── retrieval/         # embedding、PGVectorStore 索引、BM25、RRF、rewrite、rerank、檢索管線
 │   ├── graph/             # LangGraph：state、nodes、prompts、組裝
 │   └── evaluation/        # 題庫、自動生成、judge、指標、runner
 ├── tests/
@@ -32,9 +32,9 @@ aml_reg_rag/
 - **Python**：3.12 以上
 - **套件管理**：`uv`（`uv add`、`uv run`），不直接使用 `pip install`
 - **資料庫**：Postgres + pgvector，`docker compose up -d` 啟動，或以 `DATABASE_URL` 連線本機資料庫
-- **Lint / Format**：`ruff`，line-length 100；`graph/prompts.py`、`evaluation/prompts.py` 豁免 E501，prompt 文字保持原樣
+- **Lint / Format**：`ruff`，line-length 100；`graph/prompts.py`、`evaluation/prompts.py`、`retrieval/rewrite.py`、`retrieval/rerank.py` 豁免 E501，prompt 文字保持原樣
 - **型別檢查**：`mypy src`，公開函式必須有型別標註
-- **測試**：`pytest`；單元與流程測試使用 fake model 與 `FakeIndex`，不連資料庫與外部 API；串接真實資料庫、embedding 或 LLM 的測試標記 `@pytest.mark.integration`，預設不執行
+- **測試**：`pytest`；單元與流程測試使用 fake model、`FakeIndex`（向量檢索）與 `FakeRetriever`（檢索管線），不連資料庫與外部 API；串接真實資料庫、embedding 或 LLM 的測試標記 `@pytest.mark.integration`，預設不執行
 - **設定**：`pydantic-settings` 讀取 `.env`，程式中不得寫死任何 key
 
 ```bash
@@ -48,7 +48,7 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 
 - Clean code：單一職責、命名清楚、函式短小、避免過度抽象
 - 資料模型使用 `pydantic.BaseModel`，graph state 使用 `TypedDict`
-- 依賴方向單一：`cli` → `evaluation` → `graph` → `retrieval` / `citations` / `llm` → `models` / `config`；`ingest` → `retrieval`
+- 依賴方向單一：`cli` → `evaluation` → `graph` → `retrieval` / `citations` → `llm` → `models` / `config`；`ingest` → `retrieval`
 - 不留死碼、未使用的 import、註解掉的程式碼
 
 ### 註解規則
@@ -59,15 +59,17 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 
 ## LangChain / LangGraph 慣例
 
-- State、Node、組裝分開放置，`build_graph()` 回傳 compiled graph，index 與 drafter 由外部注入
+- State、Node、組裝分開放置，`build_graph()` 回傳 compiled graph，retriever 與 drafter 由外部注入
+- 檢索管線（`retrieval/pipeline.py`）實作 `Retriever` Protocol，graph、eval 與 `reg search` 共用同一條管線；hybrid、rewrite、rerank 各自可開關
+- rewrite 或 rerank 失敗時退回（只用原問題、依 RRF 名次），記錄於 `Retrieval` 的 fallback 欄位，不中斷問答
 - 引用是否屬實由 `citations.verify` 以程式判斷，不交給 LLM；驗證失敗不自動刪改引用
-- Prompt 集中於 `graph/prompts.py` 與 `evaluation/prompts.py`
+- Prompt 集中於 `graph/prompts.py` 與 `evaluation/prompts.py`；檢索用的 rewrite 與 rerank prompt 放在 `retrieval/rewrite.py`、`retrieval/rerank.py`
 - 模型透過 `llm.structured_model` 以 `init_chat_model("<provider>:<model>")` 建立，不寫死在 node 中
 - v1 為單次問答，不使用 checkpointer
 
 ## LLM 與 embedding 設定
 
-- `LLM_MODEL` 預設 `google_genai:gemini-3.8-flash`；`LLM_LIGHT_MODEL` 用於產生自動生成題
+- `LLM_MODEL` 預設 `google_genai:gemini-3.8-flash`；`LLM_LIGHT_MODEL` 用於自動生成題、query rewriting 與 rerank
 - `EVAL_JUDGE_MODEL` 獨立設定，不跟隨 `LLM_MODEL`，比較生成模型時量尺不變
 - 不設定 temperature：Gemini 3 官方建議維持預設 1.0
 - `EMBEDDING_MODEL` 以 `init_embeddings` 建立，維度參數依 provider 對應（`retrieval/embeddings.py`）；每組模型與維度各一張索引表
