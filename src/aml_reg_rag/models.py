@@ -54,6 +54,13 @@ class ChunkRef(BaseModel):
     raw: str
 
 
+class ChunkRelation(BaseModel):
+    """本段與另一段的引用關係，方向與展開相同：例如 apply 表示本段被 chunk_id 準用。"""
+
+    chunk_id: str
+    kind: RefKind
+
+
 class RetrievedChunk(BaseModel):
     chunk_id: str
     article_key: str
@@ -66,6 +73,7 @@ class RetrievedChunk(BaseModel):
     # 由引用展開補入的段落：expanded_from 為帶出它的檢索段落
     expanded_from: str | None = None
     ref_kind: RefKind | None = None
+    related: list[ChunkRelation] = []
 
     @property
     def title(self) -> str:

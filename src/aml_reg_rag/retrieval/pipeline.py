@@ -133,6 +133,7 @@ class RetrievalPipeline:
         if self._expander is not None and self._options.expand_refs:
             # 補入的段落排在檢索結果之後，不參與排名，也不寫入 traces
             chunks.extend(self._expander.expand(chunks))
+            chunks = self._expander.annotate(chunks)
         traces = [
             ChunkTrace(
                 chunk_id=chunk.chunk_id,

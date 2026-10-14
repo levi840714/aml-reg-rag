@@ -42,6 +42,8 @@ def _retrieved_record(chunk: RetrievedChunk) -> dict[str, Any]:
     record: dict[str, Any] = {"chunk_id": chunk.chunk_id, "score": round(chunk.score, 4)}
     if chunk.expanded_from is not None:
         record |= {"expanded_from": chunk.expanded_from, "ref_kind": chunk.ref_kind}
+    if chunk.related:
+        record["related"] = [relation.model_dump() for relation in chunk.related]
     return record
 
 

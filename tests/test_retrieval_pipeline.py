@@ -225,3 +225,15 @@ def test_options_from_settings_and_overrides(settings):
     assert (overridden.hybrid, overridden.rewrite, overridden.rerank) == (False, False, False)
     assert overridden.expand_refs is True
     assert overridden.candidates == settings.retrieval_candidates
+
+
+def test_expand_refs_annotates_relations_between_hits():
+    refs = [ChunkRef(src_chunk_id=A.chunk_id, target_chunk_id=B.chunk_id, kind="apply", raw="")]
+    pipeline = RetrievalPipeline(
+        FakeIndex([A, B, C]),
+        options(expand_refs=True),
+        expander=ReferenceExpander(refs, {}, limit=3),
+    )
+    retrieval = pipeline.retrieve("問題", 2)
+    assert ids(retrieval) == [A.chunk_id, B.chunk_id]
+    assert [(r.chunk_id, r.kind) for r in retrieval.chunks[1].related] == [(A.chunk_id, "apply")]

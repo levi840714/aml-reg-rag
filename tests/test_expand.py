@@ -80,3 +80,28 @@ def test_expanded_chunks_have_zero_score_and_missing_chunks_are_ignored():
     refs = [ref("G0400162:28", "G9999999:1", "apply"), ref("G0400162:28", "G0400162:16", "apply")]
     extra = expand(refs, ["G0400162:28"])
     assert [(c.chunk_id, c.score) for c in extra] == [("G0400162:16", 0.0)]
+
+
+def test_annotate_marks_relations_between_retrieved_chunks():
+    refs = [
+        ref("G0400162:28", "G0400162:16", "apply"),
+        ref("I0030047:12", "I0030047:7", "penalty"),
+        ref("G0400162:28", "G0400162:1", "authority"),
+        ref("G0380268:9", "G0380268:3", "general"),
+        ref("G0400162:28", "G0380268:3", "definition"),
+    ]
+    hit_ids = ["G0400162:28", "G0400162:16", "I0030047:7", "I0030047:12", "G0400162:1"]
+    chunks = ReferenceExpander(refs, CHUNKS, 3).annotate([CHUNKS[i] for i in hit_ids])
+    related = {c.chunk_id: [(r.chunk_id, r.kind) for r in c.related] for c in chunks}
+    assert related == {
+        "G0400162:28": [],
+        "G0400162:16": [("G0400162:28", "apply")],
+        "I0030047:7": [],
+        "I0030047:12": [("I0030047:7", "penalty")],
+        "G0400162:1": [],
+    }
+
+
+def test_expanded_chunks_carry_their_relation():
+    extra = expand([ref("G0400162:28", "G0400162:16", "apply")], ["G0400162:28"])
+    assert [(r.chunk_id, r.kind) for r in extra[0].related] == [("G0400162:28", "apply")]

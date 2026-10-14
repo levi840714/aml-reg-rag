@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 
-from aml_reg_rag.models import ChunkRef, RefKind, RetrievedChunk
+from aml_reg_rag.models import ChunkRef, ChunkRelation, RefKind, RetrievedChunk
 
 _PRIORITY: tuple[RefKind, ...] = ("apply", "definition", "penalty", "general")
 
@@ -33,9 +33,25 @@ class ReferenceExpander:
                 if len(extra) >= self._limit:
                     return extra
                 seen.add(other_id)
-                update = {"score": 0.0, "expanded_from": hit.chunk_id, "ref_kind": kind}
+                update = {
+                    "score": 0.0,
+                    "expanded_from": hit.chunk_id,
+                    "ref_kind": kind,
+                    "related": [ChunkRelation(chunk_id=hit.chunk_id, kind=kind)],
+                }
                 extra.append(chunk.model_copy(update=update))
         return extra
+
+    def annotate(self, chunks: Sequence[RetrievedChunk]) -> list[RetrievedChunk]:
+        """標註同一組段落之間的引用關係，兩端都已在結果中時模型才看得出關聯。"""
+        ids = {chunk.chunk_id for chunk in chunks}
+        related: dict[str, list[ChunkRelation]] = {chunk_id: [] for chunk_id in ids}
+        for chunk in chunks:
+            for other_id, kind in self._links.get(chunk.chunk_id, []):
+                relation = ChunkRelation(chunk_id=chunk.chunk_id, kind=kind)
+                if other_id in ids and relation not in related[other_id]:
+                    related[other_id].append(relation)
+        return [chunk.model_copy(update={"related": related[chunk.chunk_id]}) for chunk in chunks]
 
 
 def _link(ref: ChunkRef) -> tuple[str, str] | None:

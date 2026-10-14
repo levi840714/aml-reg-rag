@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from aml_reg_rag.graph.state import initial_state
-from aml_reg_rag.models import ChunkTrace, Retrieval
+from aml_reg_rag.models import ChunkRelation, ChunkTrace, Retrieval
 from aml_reg_rag.trace import append_trace, ask_record
 from tests.fakes import answer, cite, point, retrieved
 
@@ -52,7 +52,11 @@ def test_trace_keeps_retrieval_details_without_bodies(tmp_path):
 
 def test_trace_records_expanded_chunks():
     expanded = retrieved("G0400162:16", "白皮書", score=0.0).model_copy(
-        update={"expanded_from": "G0400162:28", "ref_kind": "apply"}
+        update={
+            "expanded_from": "G0400162:28",
+            "ref_kind": "apply",
+            "related": [ChunkRelation(chunk_id="G0400162:28", kind="apply")],
+        }
     )
     state = initial_state("問題", 6) | {"chunks": [retrieved("G0400162:28", "內文"), expanded]}
     record = ask_record(state, table="t", model="m", seconds=1.0, now=datetime.now(UTC))
@@ -62,4 +66,5 @@ def test_trace_records_expanded_chunks():
         "score": 0.0,
         "expanded_from": "G0400162:28",
         "ref_kind": "apply",
+        "related": [{"chunk_id": "G0400162:28", "kind": "apply"}],
     }
