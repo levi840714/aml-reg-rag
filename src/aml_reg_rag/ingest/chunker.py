@@ -100,6 +100,15 @@ def _split(
     return pieces
 
 
+def chunk_path(chunk_id: str) -> tuple[Segment, ...]:
+    """還原 chunk_id 中的項、款、目範圍；整條一段時為空。"""
+    path = []
+    for part in chunk_id.split(":")[2:]:
+        start, _, end = part[1:].partition("-")
+        path.append((int(start), int(end or start)))
+    return tuple(path)
+
+
 def _chunk_id(article: LawArticle, path: tuple[Segment, ...]) -> str:
     parts = [f"{_ID_PREFIXES[depth]}{_range(segment)}" for depth, segment in enumerate(path)]
     return ":".join([article.article_key, *parts])

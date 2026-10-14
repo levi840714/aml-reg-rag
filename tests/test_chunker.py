@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from aml_reg_rag.ingest.chunker import chunk_article, line_level, parse_units
+from aml_reg_rag.ingest.chunker import chunk_article, chunk_path, line_level, parse_units
 from aml_reg_rag.ingest.source import CorpusLaw, parse_laws
 from tests.fakes import article
 
@@ -91,3 +91,9 @@ def test_real_article_splits_into_groups_under_limit():
     covered = "\n".join(c.body for c in chunks)
     lines = [line.strip() for line in article_three.content.splitlines() if line.strip()]
     assert all(line in covered for line in lines)
+
+
+def test_chunk_path_reads_ranges_from_chunk_id():
+    assert chunk_path("G0380268:9") == ()
+    assert chunk_path("G0380268:9:p1-2:k3") == ((1, 2), (3, 3))
+    assert chunk_path("G0380131:5-1:p2") == ((2, 2),)

@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,6 +41,17 @@ class Chunk(BaseModel):
     @property
     def page_content(self) -> str:
         return f"{self.header}\n{self.body}"
+
+
+# apply 為準用；penalty 由罰則條文指向被違反的義務條文
+RefKind = Literal["apply", "definition", "penalty", "authority", "general"]
+
+
+class ChunkRef(BaseModel):
+    src_chunk_id: str
+    target_chunk_id: str
+    kind: RefKind
+    raw: str
 
 
 class RetrievedChunk(BaseModel):
