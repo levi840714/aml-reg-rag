@@ -6,6 +6,7 @@
 - **條文不足就拒答**：說明缺少哪類規範，不以段落以外的知識補足
 - **依法規結構切段**：依項、款、目切分，並帶上上層引言，避免條文被切斷
 - **可開關的檢索管線**：向量檢索、BM25、query rewriting、LLM rerank，各步驟的效果以 eval 量測
+- **沿條文引用補段落**：解析「準用」「前項」「第 X 條」等引用，檢索後補上被準用、被引用的條文與對應罰則
 - **兩套題庫的 eval**：人工題評估檢索與回答，自動生成題評估檢索，可並排比較不同設定
 
 > 輸出僅供查詢法規依據，不構成法律意見。問題會送到 LLM 與 embedding API，請勿輸入客戶個資或案件機敏資訊。
@@ -72,6 +73,7 @@ uv run reg eval compare var/eval/<結果檔>...              # 並排比較多�
 | `EMBEDDING_MODEL` / `EMBEDDING_DIM` | `google_genai:gemini-embedding-001` / 1536 | 變更後需重新 `reg ingest` |
 | `TOP_K` | 6 | 交給回答模型的段數 |
 | `RETRIEVAL_HYBRID` / `RETRIEVAL_RERANK` / `RETRIEVAL_REWRITE` | `true` / `true` / `false` | 檢索步驟開關，見「檢索管線」 |
+| `RETRIEVAL_EXPAND_REFS` / `RETRIEVAL_EXPAND_LIMIT` | `false` / 5 | 引用展開開關與最多補入段數，見「引用展開」 |
 
 模型以 `<provider>:<model>` 指定，可換成 OpenAI 或 Anthropic 的模型比較。
 
@@ -81,6 +83,7 @@ uv run reg eval compare var/eval/<結果檔>...              # 並排比較多�
 
 ```
 全國法規資料庫 Open API ──→ 解析 6 部法規 ──→ 依項、款、目切段 ──→ embedding ──→ pgvector
+                                                    └──→ 解析條文引用 ──→ 引用關係表
 ```
 
 - 法規清單在 `data/corpus.toml`：洗錢防制法、資恐防制法、提供虛擬資產服務之事業或人員防制洗錢及打擊資恐辦法、提供虛擬資產服務之事業或人員洗錢防制登記辦法、金融機構及提供虛擬資產服務之事業或人員防制詐欺犯罪危害應遵循事項辦法，以及內容相近、作為干擾項的金融機構防制洗錢辦法
@@ -95,6 +98,7 @@ uv run reg eval compare var/eval/<結果檔>...              # 並排比較多�
      └─ 每個查詢：向量檢索 top 20 ＋ [hybrid] BM25 top 20 → RRF 合併
          └─ 各查詢結果 → RRF → 前 20 段候選
              └─ [rerank] 輕量模型逐段評分 0～3 → 前 k 段
+                 └─ [expand_refs] 沿引用關係補上最多 5 段
 ```
 
 | 步驟 | 設定 | 預設 | 內容 |
@@ -102,8 +106,20 @@ uv run reg eval compare var/eval/<結果檔>...              # 並排比較多�
 | hybrid | `RETRIEVAL_HYBRID` | 開 | BM25 以中文字元 bigram 斷詞，與向量檢索的名次以 RRF（`1 / (60 + 名次)`）合併 |
 | rerank | `RETRIEVAL_RERANK` | 開 | 輕量模型依相關程度與適用對象評分（例如問虛擬資產服務商時，金融機構的規定給 0 分），同分時依 RRF 名次 |
 | rewrite | `RETRIEVAL_REWRITE` | 關 | 輕量模型把涉及多個議題的問題拆成子查詢；eval 中沒有提升檢索、每題多約 1 秒，因此預設關閉 |
+| expand_refs | `RETRIEVAL_EXPAND_REFS` | 關 | 見「引用展開」；完整生成 eval 尚未跑完，暫不預設開啟 |
 
 rewrite 或 rerank 失敗時退回（只用原問題、依 RRF 名次），不中斷問答，並記錄在 trace 與 eval 結果中。
+
+### 引用展開
+
+條文常以「準用第十六條」「前項第一款所稱」「違反第七條規定者，處…罰鍰」指向其他條文，只檢索到其中一條時，模型看不到完整規範。
+
+- 匯入時以規則解析引用：中文數字條號、前項／前條／前 N 款、範圍（至）、`、及` 連接的同一法規沿用、「同法」「同條例」，以及辦法中「本法」依「以下簡稱本法」指向母法；語料外的法規（刑法、詐欺犯罪危害防制條例等）略過
+- 每個引用依項、款、目對應到被引用的段落，並分類為準用、定義、罰則、授權、一般，寫入 `<索引表>_refs`
+- 檢索後依名次逐段展開：準用與定義補上被引用的段落；罰則反向補上處罰該義務的條文；一般引用只補同一條內的項次（如「前項」）；授權依據不展開
+- 補入的段落排在檢索結果之後，prompt 中標示為「補充：S1 準用的條文」等，引用驗證規則不變
+
+已建立的索引需重新 `reg ingest` 才會有引用關係表。
 
 ### 回答與驗證
 
@@ -124,7 +140,7 @@ retrieve ──→ generate ──→ verify ──(通過)───────
 
 | 題庫 | 題數 | 用途 |
 | ---- | ---- | ---- |
-| `eval/curated.jsonl` | 20 | 人工題：條文查詢、情境判斷、跨法規、干擾辨識、應拒答；評估檢索與回答 |
+| `eval/curated.jsonl` | 25 | 人工題：條文查詢、情境判斷、跨法規、需沿引用回答、干擾辨識、應拒答；評估檢索與回答 |
 | `eval/synthetic.jsonl` | 175 | 每條條文由輕量模型產生一題；評估檢索 |
 
 檢索以 Hit@1、Hit@3、Recall@k、MRR 衡量（以條為單位）；回答以驗證通過率、拒答判斷、是否引用正確或禁止的條文、要點涵蓋率（judge 模型判斷）衡量，並記錄耗時與成本。
@@ -141,6 +157,8 @@ retrieve ──→ generate ──→ verify ──(通過)───────
 | 要點涵蓋 | 90% | 92% |
 | 每題耗時（含檢索與回答） | 4.7 秒 | 7.7 秒 |
 
+上表為 20 題人工題時的結果。2026-10-14 加入 5 題需沿引用回答的題目後，引用展開（上限 5 段）的檢索結果：人工題 Recall@k 92% → 98%、需沿引用回答的題目 85% → 100%，平均每題只多送 0.5 條；同樣多送條文的對照組（k=9）只到 93%。完整生成 eval 因 API 額度用盡中斷，尚未完成。
+
 各步驟的 ablation、分類別數字、指標定義與個別題目的分析見 [docs/eval-results.md](docs/eval-results.md)。
 
 比較不同設定時，以 CLI 參數或 `.env` 調整後重新執行 eval；embedding 模型、維度或切段大小變更後需先重新 `reg ingest`。
@@ -156,8 +174,8 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 ```
 src/aml_reg_rag/
 ├── cli.py / render.py     # Typer 指令與 rich 顯示
-├── ingest/                # 下載、解析、切段、匯入
-├── retrieval/             # embedding、pgvector 索引、BM25、RRF、rewrite、rerank、檢索管線
+├── ingest/                # 下載、解析、切段、引用解析、匯入
+├── retrieval/             # embedding、pgvector 索引、BM25、RRF、rewrite、rerank、引用展開、檢索管線
 ├── graph/                 # LangGraph：retrieve → generate → verify
 ├── citations.py           # 引用驗證
 └── evaluation/            # 題庫、自動生成題、judge、指標、比較

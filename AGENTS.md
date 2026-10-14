@@ -19,8 +19,8 @@ aml_reg_rag/
 │   ├── llm.py             # 建立 structured output 模型、token 統計
 │   ├── citations.py       # 引用驗證
 │   ├── trace.py           # 問答 trace
-│   ├── ingest/            # 下載與解析、依項款目切段、匯入流程
-│   ├── retrieval/         # embedding、PGVectorStore 索引、BM25、RRF、rewrite、rerank、檢索管線
+│   ├── ingest/            # 下載與解析、依項款目切段、條文引用解析、匯入流程
+│   ├── retrieval/         # embedding、PGVectorStore 索引、BM25、RRF、rewrite、rerank、引用展開、檢索管線
 │   ├── graph/             # LangGraph：state、nodes、prompts、組裝
 │   └── evaluation/        # 題庫、自動生成、judge、指標、runner
 ├── tests/
@@ -62,6 +62,7 @@ uv run ruff format src tests && uv run ruff check src tests && uv run mypy src
 - State、Node、組裝分開放置，`build_graph()` 回傳 compiled graph，retriever 與 drafter 由外部注入
 - 檢索管線（`retrieval/pipeline.py`）實作 `Retriever` Protocol，graph、eval 與 `reg search` 共用同一條管線；hybrid、rewrite、rerank 各自可開關
 - rewrite 或 rerank 失敗時退回（只用原問題、依 RRF 名次），記錄於 `Retrieval` 的 fallback 欄位，不中斷問答
+- 條文引用以規則解析（`ingest/refs.py`），不交給 LLM；引用關係表 `<索引表>_refs` 由 `reg ingest` 與索引一起重建，展開（`retrieval/expand.py`）只補段落、不改變名次
 - 引用是否屬實由 `citations.verify` 以程式判斷，不交給 LLM；驗證失敗不自動刪改引用
 - Prompt 集中於 `graph/prompts.py` 與 `evaluation/prompts.py`；檢索用的 rewrite 與 rerank prompt 放在 `retrieval/rewrite.py`、`retrieval/rerank.py`
 - 模型透過 `llm.structured_model` 以 `init_chat_model("<provider>:<model>")` 建立，不寫死在 node 中

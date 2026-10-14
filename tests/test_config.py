@@ -39,7 +39,8 @@ def test_retrieval_defaults_follow_ablation():
         True,
     )
     assert settings.retrieval_candidates == 20
-    assert (settings.retrieval_expand_refs, settings.retrieval_expand_limit) == (False, 3)
+    # 引用展開：上限 5 補齊 cross_ref 全部預期條文，平均只比上限 3 多 0.06 條
+    assert (settings.retrieval_expand_refs, settings.retrieval_expand_limit) == (False, 5)
 
 
 def test_candidates_must_cover_top_k():

@@ -170,7 +170,7 @@ def test_eval_run_retrieval_only_writes_report(workspace, monkeypatch):
     assert saved["settings"]["chunk_max_chars"] == 600
     assert saved["settings"]["top_k"] == 6
     assert saved["settings"]["retrieval_expand_refs"] is False
-    assert saved["settings"]["retrieval_expand_limit"] == 3
+    assert saved["settings"]["retrieval_expand_limit"] == 5
 
 
 def test_eval_run_rejects_unknown_articles(workspace, monkeypatch):

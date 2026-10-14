@@ -218,7 +218,7 @@ def test_expand_refs_appends_cited_chunks_after_top_k():
 def test_options_from_settings_and_overrides(settings):
     defaults = RetrievalOptions.from_settings(settings)
     assert (defaults.hybrid, defaults.rewrite, defaults.rerank) == (True, False, True)
-    assert (defaults.expand_refs, defaults.expand_limit) == (False, 3)
+    assert (defaults.expand_refs, defaults.expand_limit) == (False, 5)
     overridden = RetrievalOptions.from_settings(
         settings, hybrid=False, rewrite=False, rerank=False, expand_refs=True
     )

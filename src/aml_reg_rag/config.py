@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     retrieval_rerank: bool = True
     retrieval_candidates: int = Field(default=20, gt=0)
     retrieval_expand_refs: bool = False
-    retrieval_expand_limit: int = Field(default=3, gt=0)
+    retrieval_expand_limit: int = Field(default=5, gt=0)
     data_dir: Path = PROJECT_ROOT / "data"
     eval_dir: Path = PROJECT_ROOT / "eval"
     var_dir: Path = PROJECT_ROOT / "var"
