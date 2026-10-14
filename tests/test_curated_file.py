@@ -12,8 +12,10 @@ def test_curated_questions_follow_dataset_rules():
         "lookup": 5,
         "scenario": 5,
         "cross_law": 3,
+        "cross_ref": 5,
         "distractor": 4,
         "refusal": 3,
     }
     assert all(q.forbidden_articles for q in questions if q.category == "distractor")
-    assert all(len(q.expected_articles) >= 2 for q in questions if q.category == "cross_law")
+    multi_article = ("cross_law", "cross_ref")
+    assert all(len(q.expected_articles) >= 2 for q in questions if q.category in multi_article)

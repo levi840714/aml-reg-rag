@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-Category = Literal["lookup", "scenario", "cross_law", "distractor", "refusal"]
+Category = Literal["lookup", "scenario", "cross_law", "cross_ref", "distractor", "refusal"]
 
 
 class DatasetError(ValueError):
