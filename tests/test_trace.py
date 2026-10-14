@@ -48,3 +48,18 @@ def test_trace_keeps_retrieval_details_without_bodies(tmp_path):
     assert record["retrieval"]["queries"] == ["問題", "子查詢"]
     assert record["retrieval"]["traces"][0]["rerank_score"] == 3
     assert "chunks" not in record["retrieval"]
+
+
+def test_trace_records_expanded_chunks():
+    expanded = retrieved("G0400162:16", "白皮書", score=0.0).model_copy(
+        update={"expanded_from": "G0400162:28", "ref_kind": "apply"}
+    )
+    state = initial_state("問題", 6) | {"chunks": [retrieved("G0400162:28", "內文"), expanded]}
+    record = ask_record(state, table="t", model="m", seconds=1.0, now=datetime.now(UTC))
+    assert record["retrieved"][0] == {"chunk_id": "G0400162:28", "score": 0.9}
+    assert record["retrieved"][1] == {
+        "chunk_id": "G0400162:16",
+        "score": 0.0,
+        "expanded_from": "G0400162:28",
+        "ref_kind": "apply",
+    }

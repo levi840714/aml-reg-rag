@@ -161,3 +161,16 @@ def test_render_retrieval_shows_queries_stage_ranks_and_fallbacks():
     assert "  - 子查詢" in text
     row = next(line for line in text.splitlines() if "G0380268:9" in line)
     assert "│ 4 " in row and "│ — " in row and "│ 3 " in row
+
+
+def test_render_retrieval_marks_expanded_chunks():
+    hit = retrieved("G0400162:28", "承銷公告", score=3.0)
+    expanded = retrieved("G0400162:16", "白皮書", score=0.0).model_copy(
+        update={"expanded_from": "G0400162:28", "ref_kind": "apply"}
+    )
+    retrieval = Retrieval(chunks=[hit, expanded], queries=["問題"], traces=[])
+    console = Console(record=True, width=200)
+    render_retrieval(console, retrieval)
+    text = console.export_text()
+    assert "補充" in text
+    assert "準用 ← G0400162:28" in text

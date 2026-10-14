@@ -210,8 +210,9 @@ def build_report(
 
 def retrieval_label(settings: dict[str, str | int | bool]) -> str:
     # v1 的結果檔沒有檢索開關，視為只有向量檢索
-    flags = [name for name in ("hybrid", "rewrite", "rerank") if settings.get(f"retrieval_{name}")]
-    return "+".join(flags) or "vector"
+    flags = {"hybrid": "hybrid", "rewrite": "rewrite", "rerank": "rerank", "expand_refs": "refs"}
+    enabled = [label for name, label in flags.items() if settings.get(f"retrieval_{name}")]
+    return "+".join(enabled) or "vector"
 
 
 def write_report(eval_dir: Path, report: EvalReport) -> Path:

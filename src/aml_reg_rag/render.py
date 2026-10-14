@@ -6,7 +6,7 @@ from aml_reg_rag.evaluation.compare import Comparison
 from aml_reg_rag.evaluation.runner import EvalReport
 from aml_reg_rag.graph.state import AskState, labeled_chunks
 from aml_reg_rag.ingest.pipeline import IngestReport
-from aml_reg_rag.models import Answer, Retrieval, RetrievedChunk
+from aml_reg_rag.models import Answer, RefKind, Retrieval, RetrievedChunk
 
 PREVIEW_CHARS = 40
 
@@ -21,9 +21,18 @@ def render_ingest(console: Console, report: IngestReport) -> None:
     console.print(f"已建立索引 [bold]{escape(report.meta.table_name)}[/]")
     console.print(
         f"法規 {report.laws} 部、條文 {report.articles} 條、段落 {report.chunks} 段"
-        f"（超過切段上限 {report.oversized} 段）"
+        f"（超過切段上限 {report.oversized} 段）、引用關係 {report.refs} 筆"
     )
     console.print(f"資料來源更新日期：{report.meta.source_update_date}")
+
+
+REF_KIND_LABELS: dict[RefKind, str] = {
+    "apply": "準用",
+    "definition": "定義",
+    "penalty": "罰則",
+    "general": "同條",
+    "authority": "授權",
+}
 
 
 def render_retrieval(console: Console, retrieval: Retrieval) -> None:
@@ -45,9 +54,10 @@ def render_retrieval(console: Console, retrieval: Retrieval) -> None:
     for rank, chunk in enumerate(retrieval.chunks, start=1):
         trace = traces.get(chunk.chunk_id)
         preview = chunk.body.replace("\n", " ")[:PREVIEW_CHARS]
+        expansion = _expansion(chunk)
         table.add_row(
-            str(rank),
-            f"{chunk.score:.3f}",
+            "補充" if expansion else str(rank),
+            expansion or f"{chunk.score:.3f}",
             _optional(trace.vector_rank if trace else None),
             _optional(trace.bm25_rank if trace else None),
             _optional(trace.rerank_score if trace else None),
@@ -56,6 +66,12 @@ def render_retrieval(console: Console, retrieval: Retrieval) -> None:
             escape(preview),
         )
     console.print(table)
+
+
+def _expansion(chunk: RetrievedChunk) -> str | None:
+    if chunk.expanded_from is None or chunk.ref_kind is None:
+        return None
+    return f"{REF_KIND_LABELS[chunk.ref_kind]} ← {chunk.expanded_from}"
 
 
 def render_compare(console: Console, comparison: Comparison) -> None:

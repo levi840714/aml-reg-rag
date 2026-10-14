@@ -63,6 +63,9 @@ class RetrievedChunk(BaseModel):
     source_url: str
     body: str
     score: float
+    # 由引用展開補入的段落：expanded_from 為帶出它的檢索段落
+    expanded_from: str | None = None
+    ref_kind: RefKind | None = None
 
     @property
     def title(self) -> str:

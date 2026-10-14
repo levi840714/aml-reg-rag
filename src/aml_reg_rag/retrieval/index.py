@@ -14,12 +14,13 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from aml_reg_rag.config import Settings
-from aml_reg_rag.models import Chunk, RetrievedChunk, article_url
+from aml_reg_rag.models import Chunk, ChunkRef, RetrievedChunk, article_url
 from aml_reg_rag.retrieval.embeddings import EmbeddingConfigError
 
 MAX_IDENTIFIER = 63
 INDEX_SUFFIX = "_hnsw"
-TABLE_BUDGET = MAX_IDENTIFIER - len(INDEX_SUFFIX)
+REFS_SUFFIX = "_refs"
+TABLE_BUDGET = MAX_IDENTIFIER - max(len(INDEX_SUFFIX), len(REFS_SUFFIX))
 ID_COLUMN = "chunk_id"
 METADATA_COLUMNS = [
     Column("pcode", "TEXT", nullable=False),
@@ -40,6 +41,15 @@ CREATE TABLE IF NOT EXISTS index_meta (
     source_update_date DATE NOT NULL,
     chunk_count INTEGER NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL
+)
+"""
+REFS_DDL = """
+CREATE TABLE "{table}" (
+    src_chunk_id TEXT NOT NULL,
+    target_chunk_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    raw TEXT NOT NULL,
+    PRIMARY KEY (src_chunk_id, target_chunk_id, kind)
 )
 """
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -252,6 +262,36 @@ def load_chunks(db: Database, table: str) -> list[tuple[RetrievedChunk, str]]:
         # 距離 1.0 使相似度為 0，BM25 的分數另外記錄
         entries.append((to_retrieved(document, 1.0), row["content"]))
     return entries
+
+
+def refs_table(table: str) -> str:
+    return f"{table}{REFS_SUFFIX}"
+
+
+def write_refs(db: Database, table: str, refs: list[ChunkRef]) -> None:
+    name = refs_table(table)
+    with db.sql.begin() as connection:
+        connection.execute(text(f'DROP TABLE IF EXISTS "{name}"'))
+        connection.execute(text(REFS_DDL.format(table=name)))
+        if refs:
+            connection.execute(
+                text(f'INSERT INTO "{name}" VALUES (:src_chunk_id, :target_chunk_id, :kind, :raw)'),
+                [ref.model_dump() for ref in refs],
+            )
+
+
+def load_refs(db: Database, table: str) -> list[ChunkRef]:
+    name = refs_table(table)
+    with db.sql.connect() as connection:
+        if (
+            connection.execute(text("SELECT to_regclass(:name)"), {"name": f'"{name}"'}).scalar()
+            is None
+        ):
+            raise IndexNotReadyError("索引沒有引用關係表，請重新執行 reg ingest")
+        rows = connection.execute(
+            text(f'SELECT * FROM "{name}" ORDER BY src_chunk_id, kind, target_chunk_id')
+        ).mappings()
+        return [ChunkRef.model_validate(dict(row)) for row in rows]
 
 
 def _open_store(db: Database, table: str, embeddings: Embeddings) -> PGVectorStore:

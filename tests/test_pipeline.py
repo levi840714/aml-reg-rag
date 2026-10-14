@@ -43,9 +43,18 @@ def test_run_ingest_chunks_articles_and_rebuilds_index(settings, monkeypatch):
             ingested_at=datetime.now(UTC),
         )
 
+    def fake_write_refs(db, table, refs):
+        captured["refs"] = (table, refs)
+
     monkeypatch.setattr(pipeline, "rebuild_index", fake_rebuild)
+    monkeypatch.setattr(pipeline, "write_refs", fake_write_refs)
     report = pipeline.run_ingest(settings, db=None, embeddings=None)
     assert (report.laws, report.articles, report.chunks, report.oversized) == (2, 3, 8, 0)
+    table, refs = captured["refs"]
+    chunk_ids = {chunk.chunk_id for chunk in captured["chunks"]}
+    assert table == "chunks_test"
+    assert report.refs == len(refs) > 0
+    assert all({ref.src_chunk_id, ref.target_chunk_id} <= chunk_ids for ref in refs)
     assert report.meta.source_update_date == date(2026, 9, 18)
     assert [c.chunk_id for c in captured["chunks"][:3]] == [
         "I0030047:5",

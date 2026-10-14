@@ -70,6 +70,9 @@ console = Console()
 HYBRID = typer.Option(None, "--hybrid/--no-hybrid", help="加入 BM25（覆寫 RETRIEVAL_HYBRID）")
 REWRITE = typer.Option(None, "--rewrite/--no-rewrite", help="拆解子查詢（覆寫 RETRIEVAL_REWRITE）")
 RERANK = typer.Option(None, "--rerank/--no-rerank", help="LLM rerank（覆寫 RETRIEVAL_RERANK）")
+EXPAND_REFS = typer.Option(
+    None, "--expand-refs/--no-expand-refs", help="補上引用的條文（覆寫 RETRIEVAL_EXPAND_REFS）"
+)
 REPORT_PATHS = typer.Argument(..., exists=True, dir_okay=False, help="eval 結果檔")
 
 
@@ -120,12 +123,13 @@ def search(
     hybrid: bool | None = HYBRID,
     rewrite: bool | None = REWRITE,
     rerank: bool | None = RERANK,
+    expand_refs: bool | None = EXPAND_REFS,
 ) -> None:
     """只檢索；開啟 rewrite 或 rerank 時會呼叫輕量模型。"""
     with _handle_errors():
         settings = Settings()
         options = RetrievalOptions.from_settings(
-            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank
+            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank, expand_refs=expand_refs
         )
         with _open_index(settings, options) as opened:
             retrieval = opened.retriever.retrieve(question, k or settings.top_k)
@@ -140,12 +144,13 @@ def ask(
     hybrid: bool | None = HYBRID,
     rewrite: bool | None = REWRITE,
     rerank: bool | None = RERANK,
+    expand_refs: bool | None = EXPAND_REFS,
 ) -> None:
     """依法規條文回答問題。"""
     with _handle_errors():
         settings = Settings()
         options = RetrievalOptions.from_settings(
-            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank
+            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank, expand_refs=expand_refs
         )
         with _open_index(settings, options) as opened:
             drafter = make_drafter(settings.llm_model, settings.llm_timeout)
@@ -198,12 +203,13 @@ def eval_run(
     hybrid: bool | None = HYBRID,
     rewrite: bool | None = REWRITE,
     rerank: bool | None = RERANK,
+    expand_refs: bool | None = EXPAND_REFS,
 ) -> None:
     """執行 eval 並寫入 var/eval/。"""
     with _handle_errors():
         settings = Settings()
         options = RetrievalOptions.from_settings(
-            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank
+            settings, hybrid=hybrid, rewrite=rewrite, rerank=rerank, expand_refs=expand_refs
         )
         top_k = k or settings.top_k
         model_name = None if retrieval_only else model or settings.llm_model
@@ -267,6 +273,8 @@ def _report_settings(settings: Settings, options: RetrievalOptions) -> dict[str,
         "retrieval_rewrite": options.rewrite,
         "retrieval_rerank": options.rerank,
         "retrieval_candidates": options.candidates,
+        "retrieval_expand_refs": options.expand_refs,
+        "retrieval_expand_limit": options.expand_limit,
     }
 
 

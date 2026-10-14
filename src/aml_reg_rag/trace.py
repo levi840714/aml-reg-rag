@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from aml_reg_rag.graph.state import AskState
+from aml_reg_rag.models import RetrievedChunk
 
 
 def ask_record(
@@ -16,7 +17,7 @@ def ask_record(
         "question": state["question"],
         "index": table,
         "model": model,
-        "retrieved": [{"chunk_id": c.chunk_id, "score": round(c.score, 4)} for c in chunks],
+        "retrieved": [_retrieved_record(chunk) for chunk in chunks],
         "top_score": round(chunks[0].score, 4) if chunks else None,
         "retrieval": _retrieval_record(state),
         "answer": answer.model_dump() if answer else None,
@@ -35,6 +36,13 @@ def append_trace(trace_dir: Path, record: dict[str, Any], now: datetime) -> Path
     with path.open("a", encoding="utf-8") as file:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
     return path
+
+
+def _retrieved_record(chunk: RetrievedChunk) -> dict[str, Any]:
+    record: dict[str, Any] = {"chunk_id": chunk.chunk_id, "score": round(chunk.score, 4)}
+    if chunk.expanded_from is not None:
+        record |= {"expanded_from": chunk.expanded_from, "ref_kind": chunk.ref_kind}
+    return record
 
 
 def _retrieval_record(state: AskState) -> dict[str, Any] | None:

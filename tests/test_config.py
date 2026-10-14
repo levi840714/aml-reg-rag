@@ -39,6 +39,7 @@ def test_retrieval_defaults_follow_ablation():
         True,
     )
     assert settings.retrieval_candidates == 20
+    assert (settings.retrieval_expand_refs, settings.retrieval_expand_limit) == (False, 3)
 
 
 def test_candidates_must_cover_top_k():

@@ -4,8 +4,9 @@ from typing import Protocol
 from aml_reg_rag.config import Settings
 from aml_reg_rag.models import ChunkTrace, Retrieval, RetrievedChunk
 from aml_reg_rag.retrieval.bm25 import Bm25Index
+from aml_reg_rag.retrieval.expand import ReferenceExpander
 from aml_reg_rag.retrieval.fusion import reciprocal_rank_fusion
-from aml_reg_rag.retrieval.index import ChunkIndex, Database, load_chunks
+from aml_reg_rag.retrieval.index import ChunkIndex, Database, load_chunks, load_refs
 from aml_reg_rag.retrieval.rerank import LlmReranker, make_reranker
 from aml_reg_rag.retrieval.rewrite import QueryRewriter, make_rewriter
 
@@ -20,6 +21,8 @@ class RetrievalOptions:
     rewrite: bool
     rerank: bool
     candidates: int
+    expand_refs: bool
+    expand_limit: int
 
     @classmethod
     def from_settings(
@@ -29,12 +32,15 @@ class RetrievalOptions:
         hybrid: bool | None = None,
         rewrite: bool | None = None,
         rerank: bool | None = None,
+        expand_refs: bool | None = None,
     ) -> "RetrievalOptions":
         return cls(
             hybrid=settings.retrieval_hybrid if hybrid is None else hybrid,
             rewrite=settings.retrieval_rewrite if rewrite is None else rewrite,
             rerank=settings.retrieval_rerank if rerank is None else rerank,
             candidates=settings.retrieval_candidates,
+            expand_refs=settings.retrieval_expand_refs if expand_refs is None else expand_refs,
+            expand_limit=settings.retrieval_expand_limit,
         )
 
 
@@ -65,6 +71,7 @@ class RetrievalPipeline:
         bm25: Bm25Index | None = None,
         rewriter: QueryRewriter | None = None,
         reranker: LlmReranker | None = None,
+        expander: ReferenceExpander | None = None,
     ) -> None:
         missing = [
             name
@@ -72,6 +79,7 @@ class RetrievalPipeline:
                 ("hybrid", options.hybrid, bm25),
                 ("rewrite", options.rewrite, rewriter),
                 ("rerank", options.rerank, reranker),
+                ("expand_refs", options.expand_refs, expander),
             )
             if enabled and part is None
         ]
@@ -82,6 +90,7 @@ class RetrievalPipeline:
         self._bm25 = bm25
         self._rewriter = rewriter
         self._reranker = reranker
+        self._expander = expander
 
     def retrieve(self, question: str, k: int) -> Retrieval:
         size = max(self._options.candidates, k)
@@ -121,6 +130,9 @@ class RetrievalPipeline:
             )
             for chunk in final
         ]
+        if self._expander is not None and self._options.expand_refs:
+            # 補入的段落排在檢索結果之後，不參與排名，也不寫入 traces
+            chunks.extend(self._expander.expand(chunks))
         traces = [
             ChunkTrace(
                 chunk_id=chunk.chunk_id,
@@ -164,14 +176,20 @@ class RetrievalPipeline:
 def make_pipeline(
     db: Database, table: str, vector: ChunkIndex, settings: Settings, options: RetrievalOptions
 ) -> RetrievalPipeline:
+    entries = load_chunks(db, table) if options.hybrid or options.expand_refs else []
+    expander = None
+    if options.expand_refs:
+        chunks = {chunk.chunk_id: chunk for chunk, _ in entries}
+        expander = ReferenceExpander(load_refs(db, table), chunks, options.expand_limit)
     return RetrievalPipeline(
         vector,
         options,
-        bm25=Bm25Index(load_chunks(db, table)) if options.hybrid else None,
+        bm25=Bm25Index(entries) if options.hybrid else None,
         rewriter=make_rewriter(settings.llm_light_model, settings.llm_timeout)
         if options.rewrite
         else None,
         reranker=make_reranker(settings.llm_light_model, settings.llm_timeout)
         if options.rerank
         else None,
+        expander=expander,
     )

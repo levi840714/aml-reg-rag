@@ -2,6 +2,8 @@ import itertools
 
 import pytest
 
+from aml_reg_rag.models import ChunkRef
+from aml_reg_rag.retrieval.expand import ReferenceExpander
 from aml_reg_rag.retrieval.pipeline import RetrievalOptions, RetrievalPipeline
 from aml_reg_rag.retrieval.rerank import Rerank
 from aml_reg_rag.retrieval.rewrite import Rewrite
@@ -44,8 +46,15 @@ class FakeReranker:
         return Rerank(self.scores, self.fallback, 30, 5)
 
 
-def options(hybrid=False, rewrite=False, rerank=False, candidates=20):
-    return RetrievalOptions(hybrid=hybrid, rewrite=rewrite, rerank=rerank, candidates=candidates)
+def options(hybrid=False, rewrite=False, rerank=False, candidates=20, expand_refs=False):
+    return RetrievalOptions(
+        hybrid=hybrid,
+        rewrite=rewrite,
+        rerank=rerank,
+        candidates=candidates,
+        expand_refs=expand_refs,
+        expand_limit=3,
+    )
 
 
 def ids(retrieval):
@@ -190,11 +199,29 @@ def test_every_combination_returns_k_chunks_with_traces(hybrid, rewrite, rerank)
 def test_missing_component_is_rejected():
     with pytest.raises(ValueError, match="hybrid、rerank"):
         RetrievalPipeline(FakeIndex([A]), options(hybrid=True, rerank=True))
+    with pytest.raises(ValueError, match="expand_refs"):
+        RetrievalPipeline(FakeIndex([A]), options(expand_refs=True))
+
+
+def test_expand_refs_appends_cited_chunks_after_top_k():
+    refs = [
+        ChunkRef(src_chunk_id=B.chunk_id, target_chunk_id=D.chunk_id, kind="definition", raw="")
+    ]
+    expander = ReferenceExpander(refs, {D.chunk_id: D}, limit=3)
+    pipeline = RetrievalPipeline(FakeIndex([A, B, C]), options(expand_refs=True), expander=expander)
+    retrieval = pipeline.retrieve("問題", 2)
+    assert ids(retrieval) == [A.chunk_id, B.chunk_id, D.chunk_id]
+    assert retrieval.chunks[2].expanded_from == B.chunk_id
+    assert all(trace.chunk_id != D.chunk_id for trace in retrieval.traces)
 
 
 def test_options_from_settings_and_overrides(settings):
     defaults = RetrievalOptions.from_settings(settings)
     assert (defaults.hybrid, defaults.rewrite, defaults.rerank) == (True, False, True)
-    overridden = RetrievalOptions.from_settings(settings, hybrid=False, rewrite=False, rerank=False)
+    assert (defaults.expand_refs, defaults.expand_limit) == (False, 3)
+    overridden = RetrievalOptions.from_settings(
+        settings, hybrid=False, rewrite=False, rerank=False, expand_refs=True
+    )
     assert (overridden.hybrid, overridden.rewrite, overridden.rerank) == (False, False, False)
+    assert overridden.expand_refs is True
     assert overridden.candidates == settings.retrieval_candidates

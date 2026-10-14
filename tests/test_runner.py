@@ -9,6 +9,7 @@ from aml_reg_rag.evaluation.metrics import summarize_generation
 from aml_reg_rag.evaluation.runner import (
     answer_one,
     build_report,
+    retrieval_label,
     run_generation,
     run_retrieval,
     write_report,
@@ -260,3 +261,9 @@ def test_answer_one_records_retrieval_tokens():
 
     result = answer_one(ask, judge_with(True), question(), 6, run=1)
     assert result.retrieval_input_tokens == 40
+
+
+def test_retrieval_label_includes_reference_expansion():
+    settings = {"retrieval_hybrid": True, "retrieval_rerank": True, "retrieval_expand_refs": True}
+    assert retrieval_label(settings) == "hybrid+rerank+refs"
+    assert retrieval_label({}) == "vector"

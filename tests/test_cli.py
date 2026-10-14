@@ -169,6 +169,8 @@ def test_eval_run_retrieval_only_writes_report(workspace, monkeypatch):
     saved = json.loads(reports[0].read_text(encoding="utf-8"))
     assert saved["settings"]["chunk_max_chars"] == 600
     assert saved["settings"]["top_k"] == 6
+    assert saved["settings"]["retrieval_expand_refs"] is False
+    assert saved["settings"]["retrieval_expand_limit"] == 3
 
 
 def test_eval_run_rejects_unknown_articles(workspace, monkeypatch):
@@ -214,6 +216,10 @@ def test_retrieval_flags_override_settings(workspace, monkeypatch):
     assert result.exit_code == 0, result.output
     options = captured["options"]
     assert (options.hybrid, options.rewrite, options.rerank) == (False, True, True)
+    assert options.expand_refs is False
+    result = runner.invoke(cli.app, ["search", "問題", "--expand-refs"])
+    assert result.exit_code == 0, result.output
+    assert captured["options"].expand_refs is True
 
 
 def test_eval_compare_prints_side_by_side(workspace, monkeypatch):

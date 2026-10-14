@@ -5,6 +5,7 @@ from langchain_core.embeddings import Embeddings
 
 from aml_reg_rag.config import Settings
 from aml_reg_rag.ingest.chunker import chunk_article
+from aml_reg_rag.ingest.refs import link_chunks
 from aml_reg_rag.ingest.source import (
     SourceData,
     fetch_datasets,
@@ -12,7 +13,7 @@ from aml_reg_rag.ingest.source import (
     parse_laws,
     read_dataset,
 )
-from aml_reg_rag.retrieval.index import Database, IndexMeta, rebuild_index
+from aml_reg_rag.retrieval.index import Database, IndexMeta, rebuild_index, write_refs
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class IngestReport:
     articles: int
     chunks: int
     oversized: int
+    refs: int
     meta: IndexMeta
     warnings: list[str]
 
@@ -49,11 +51,14 @@ def run_ingest(
         for chunk in chunk_article(article, settings.chunk_max_chars)
     ]
     meta = rebuild_index(db, settings, embeddings, chunks, source.update_date)
+    refs = link_chunks(chunks)
+    write_refs(db, meta.table_name, refs)
     return IngestReport(
         laws=len({article.pcode for article in source.articles}),
         articles=len(source.articles),
         chunks=len(chunks),
         oversized=sum(len(chunk.body) > settings.chunk_max_chars for chunk in chunks),
+        refs=len(refs),
         meta=meta,
         warnings=source.warnings,
     )
